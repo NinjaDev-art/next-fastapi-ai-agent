@@ -12,6 +12,9 @@ from langchain_community.vectorstores import FAISS
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
+from langchain_core.prompts import ChatPromptTemplate
 import tempfile
 from pathlib import Path
 import docx
@@ -31,7 +34,6 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 class ChatRequest(BaseModel):
-    sessionId: str
     prompt: str
     model: str = "gpt-3.5-turbo"
     reGenerate: bool = False
@@ -105,27 +107,23 @@ def process_files(files: List[str]) -> str:
             raise
     return all_text
 
-def get_vector_store(session_id: str, files: List[str]) -> FAISS:
-    logger.info(f"Getting vector store for session: {session_id}")
-    # if session_id in vector_stores:
-    #     logger.info("Using cached vector store")
-    #     return vector_stores[session_id]
-    
+def get_vector_store(files: List[str]) -> FAISS:
+    logger.info(f"Processing files: {files}")
     try:
         # Process files and create vector store
         text = process_files(files)
         logger.info("Creating text splitter")
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
-            chunk_overlap=200
+            chunk_overlap=200,
+            length_function=len,
         )
         texts = text_splitter.split_text(text)
         logger.info(f"Split text into {len(texts)} chunks")
         
         logger.info("Creating vector store")
         vector_store = FAISS.from_texts(texts, embeddings)
-        vector_stores[session_id] = vector_store
-        logger.info("Vector store created and cached")
+        logger.info("Vector store created")
         return vector_store
     except Exception as e:
         logger.error(f"Error creating vector store: {str(e)}")
@@ -145,18 +143,13 @@ app.add_middleware(
 def read_root():
     return {"Hello": "World"}
 
-async def generate_stream_response(query: str, session_id: str, files: List[str]) -> AsyncGenerator[str, None]:
+async def generate_stream_response(query: str, files: List[str]) -> AsyncGenerator[str, None]:
     logger.info(f"Generating response for query: {query}")
     try:
         if files:
             logger.info("Using RAG with files")
-            vector_store = get_vector_store(session_id, files)
-            memory = ConversationBufferMemory(
-                memory_key="chat_history",
-                return_messages=True
-            )
+            vector_store = get_vector_store(files)
             
-            logger.info("Creating QA chain")
             # Create a streaming LLM
             llm = ChatOpenAI(
                 temperature=0.7,
@@ -164,22 +157,26 @@ async def generate_stream_response(query: str, session_id: str, files: List[str]
                 callbacks=[StreamingStdOutCallbackHandler()]
             )
             
-            qa_chain = ConversationalRetrievalChain.from_llm(
-                llm=llm,
-                retriever=vector_store.as_retriever(),
-                memory=memory,
-                return_source_documents=True,
-                output_key="answer"
+            # Create a prompt template
+            template = """Answer the question based on the following context:
+            {context}
+            
+            Question: {question}
+            """
+            
+            prompt = ChatPromptTemplate.from_template(template)
+            
+            # Create the RAG chain
+            rag_chain = (
+                {"context": vector_store.as_retriever(), "question": RunnablePassthrough()}
+                | prompt
+                | llm
+                | StrOutputParser()
             )
             
-            logger.info("Running QA chain")
-            response = qa_chain.invoke({"question": query})
-            answer = response["answer"]
-            
-            # Stream the answer in smaller chunks
-            chunk_size = 10
-            for i in range(0, len(answer), chunk_size):
-                chunk = answer[i:i + chunk_size]
+            # Stream the response
+            async for chunk in rag_chain.astream(query):
+                logger.info(f"Chunk: {chunk}")
                 yield chunk
                 await asyncio.sleep(0.01)
                 
@@ -203,10 +200,10 @@ async def generate_stream_response(query: str, session_id: str, files: List[str]
 
 @app.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
-    logger.info(f"Received chat request - Session: {request.sessionId}, Prompt: {request.prompt}")
+    logger.info(f"Received chat request - Prompt: {request.prompt}")
     logger.info(f"Files: {request.files}")
     return StreamingResponse(
-        generate_stream_response(request.prompt, request.sessionId, request.files),
+        generate_stream_response(request.prompt, request.files),
         media_type="text/event-stream"
     )
     
