@@ -117,6 +117,8 @@ class ChatRequest(BaseModel):
     reGenerate: bool = False
     files: List[str] = []
     chatHistory: List[IRouterChatLog] = []
+    sessionId: str = ""
+    reGenerate: bool = False
 
 app = FastAPI()
 
