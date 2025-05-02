@@ -69,7 +69,9 @@ class ChatService:
                     temperature=0.7,
                     streaming=True,
                     callbacks=[StreamingStdOutCallbackHandler()],
-                    model=settings.DEFAULT_MODEL
+                    model=settings.DEFAULT_MODEL,
+                    openai_api_key=settings.OPENAI_API_KEY,
+                    stream_usage=True
                 )
                 
                 system_template = db.get_system_prompt() + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
