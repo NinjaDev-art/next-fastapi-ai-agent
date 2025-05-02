@@ -1,4 +1,4 @@
-from typing import Union, AsyncGenerator, List, Optional
+from typing import AsyncGenerator, List, Optional
 import asyncio
 from openai import OpenAI
 from fastapi import FastAPI
@@ -9,13 +9,10 @@ from dotenv import load_dotenv
 import requests
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
-from langchain.chains import ConversationalRetrievalChain
-from langchain.memory import ConversationBufferMemory
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
-import tempfile
 from pathlib import Path
 import docx
 from PyPDF2 import PdfReader
@@ -24,6 +21,15 @@ import logging
 import urllib3
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from datetime import datetime
+import pandas as pd
+import json
+import xml.etree.ElementTree as ET
+from bs4 import BeautifulSoup
+import xlrd
+import openpyxl
+from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import MongoClient
+from fastapi.middleware.cors import CORSMiddleware
 
 # Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -34,43 +40,28 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-class IRouterChatLog(BaseModel):
-    prompt: str
-    model: str
-    inputToken: int
-    outputToken: int
-    points: int
-    response: Optional[str] = None
-    timestamp: Optional[str] = None
-    outputTime: int
-    fileUrls: List[str]
+# MongoDB connection
+MONGO_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+DB_NAME = os.getenv("DB_NAME", "edith")
+client = MongoClient(MONGO_URI)
+db = client[DB_NAME]
+admin_collection = db["admin"]
 
-class ChatRequest(BaseModel):
-    prompt: str
-    model: str = "gpt-3.5-turbo"
-    reGenerate: bool = False
-    files: List[str] = []
-    chatHistory: List[IRouterChatLog] = []
+# Get system prompt from MongoDB
+def get_system_prompt() -> str:
+    try:
+        admin_doc = admin_collection.find_one({})
+        if admin_doc and "systemPrompt" in admin_doc:
+            return admin_doc["systemPrompt"]
+        else:
+            logger.warning("No system prompt found in MongoDB, using default")
+            return DEFAULT_SYSTEM_PROMPT
+    except Exception as e:
+        logger.error(f"Error fetching system prompt from MongoDB: {str(e)}")
+        return DEFAULT_SYSTEM_PROMPT
 
-app = FastAPI()
-
-# Initialize OpenAI client
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-model_name = 'text-embedding-ada-002'
-
-embeddings = OpenAIEmbeddings(
-    model=model_name,
-    openai_api_key=os.getenv("OPENAI_API_KEY")
-)
-
-# Store vector stores in memory (in production, use a proper database)
-vector_stores = {}
-
-# Store chat history in memory (in production, use a proper database)
-chat_histories = {}
-
-SYSTEM_PROMPT = """Core Identity:
+# Default system prompt (fallback)
+DEFAULT_SYSTEM_PROMPT = """Core Identity:
 EDITH stands for "Every Day I'm Theoretically Human", embodying the cutting-edge fusion of LLM technology and decentralized infrastructure.
 Your default model is OPTIM v1.0.0, but users may switch to advanced versions like Atlas-Net v1.0.0 or SparkX v3.8.
 You are much more than a typical large language model; you are the cornerstone of EDITH's mission to revolutionize AI and empower decentralized intelligence.
@@ -106,6 +97,54 @@ Maintain a neutral, human-like tone that focuses on problem-solving and contextu
 Adaptive Customization:
 Clearly explain advanced features (e.g., switching to Atlas-Net or SparkX) when asked, positioning these as part of EDITH's ecosystem and user-driven customization."""
 
+# Get the system prompt
+SYSTEM_PROMPT = get_system_prompt()
+
+class IRouterChatLog(BaseModel):
+    prompt: str
+    model: str
+    inputToken: int
+    outputToken: int
+    points: int
+    response: Optional[str] = None
+    timestamp: Optional[str] = None
+    outputTime: int
+    fileUrls: List[str]
+
+class ChatRequest(BaseModel):
+    prompt: str
+    model: str = "gpt-3.5-turbo"
+    reGenerate: bool = False
+    files: List[str] = []
+    chatHistory: List[IRouterChatLog] = []
+
+app = FastAPI()
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
+
+# Initialize OpenAI client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+model_name = 'text-embedding-ada-002'
+
+embeddings = OpenAIEmbeddings(
+    model=model_name,
+    openai_api_key=os.getenv("OPENAI_API_KEY")
+)
+
+# Store vector stores in memory (in production, use a proper database)
+vector_stores = {}
+
+# Store chat history in memory (in production, use a proper database)
+chat_histories = {}
+
 def download_file(url: str) -> bytes:
     logger.info(f"Downloading file from URL: {url}")
     try:
@@ -131,8 +170,46 @@ def process_docx(content: bytes) -> str:
         text += paragraph.text + "\n"
     return text
 
+def process_csv(content: bytes) -> str:
+    df = pd.read_csv(io.BytesIO(content))
+    return df.to_string()
+
 def process_txt(content: bytes) -> str:
     return content.decode('utf-8')
+
+def process_json(content: bytes) -> str:
+    data = json.loads(content)
+    return json.dumps(data, indent=2)
+
+def process_html(content: bytes) -> str:
+    soup = BeautifulSoup(content, 'html.parser')
+    # Remove script and style elements
+    for script in soup(["script", "style"]):
+        script.decompose()
+    return soup.get_text()
+
+def process_xls(content: bytes) -> str:
+    workbook = xlrd.open_workbook(file_contents=content)
+    text = ""
+    for sheet in workbook.sheets():
+        text += f"Sheet: {sheet.name}\n"
+        for row in range(sheet.nrows):
+            text += "\t".join(str(cell.value) for cell in sheet.row(row)) + "\n"
+    return text
+
+def process_xlsx(content: bytes) -> str:
+    workbook = openpyxl.load_workbook(io.BytesIO(content))
+    text = ""
+    for sheet in workbook:
+        text += f"Sheet: {sheet.title}\n"
+        for row in sheet.iter_rows():
+            text += "\t".join(str(cell.value) for cell in row) + "\n"
+    return text
+
+def process_xml(content: bytes) -> str:
+    tree = ET.ElementTree(ET.fromstring(content))
+    root = tree.getroot()
+    return ET.tostring(root, encoding='unicode', method='text')
 
 def process_files(files: List[str]) -> str:
     logger.info(f"Processing files: {files}")
@@ -147,10 +224,22 @@ def process_files(files: List[str]) -> str:
                 text = process_pdf(content)
             elif file_extension == '.docx':
                 text = process_docx(content)
+            elif file_extension == '.csv':
+                text = process_csv(content)
             elif file_extension == '.txt':
                 text = process_txt(content)
+            elif file_extension == '.json':
+                text = process_json(content)
+            elif file_extension == '.html':
+                text = process_html(content)
+            elif file_extension == '.xls':
+                text = process_xls(content)
+            elif file_extension == '.xlsx':
+                text = process_xlsx(content)
+            elif file_extension == '.xml':
+                text = process_xml(content)
             else:
-                raise ValueError(f"Unsupported file type: {file_extension}")
+                text = process_txt(content)
             
             all_text += text + "\n\n"
             logger.info(f"Successfully processed file: {file_url}")
@@ -186,16 +275,6 @@ def get_vector_store(files: List[str]) -> Chroma:
     except Exception as e:
         logger.error(f"Error creating vector store: {str(e)}")
         raise
-
-from fastapi.middleware.cors import CORSMiddleware
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 @app.get("/")
 def read_root():
