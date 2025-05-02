@@ -2,6 +2,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .config.settings import settings
 from .api.chat import router as chat_router
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Verify environment variables
+logger.info(f"MONGODB_URI: {settings.MONGODB_URI}")
+logger.info(f"DB_NAME: {settings.DB_NAME}")
+logger.info(f"OPENAI_API_KEY: {'Set' if settings.OPENAI_API_KEY else 'Not Set'}")
+logger.info(f"DEFAULT_MODEL: {settings.DEFAULT_MODEL}")
+logger.info(f"EMBEDDING_MODEL: {settings.EMBEDDING_MODEL}")
+logger.info(f"AWS_CDN_URL: {settings.AWS_CDN_URL}")
+logger.info(f"DEBUG: {settings.DEBUG}")
+logger.info(f"CORS_ORIGINS: {settings.CORS_ORIGINS}")
 
 app = FastAPI(
     title="Chatbot API",
