@@ -264,7 +264,7 @@ async def generate_stream_response(query: str, files: List[str], chat_history: L
                     await asyncio.sleep(0.01)
             
             # Yield token usage as a special marker
-            yield f"\n\n[TOKEN_USAGE]{token_usage}"
+            yield f"\n\n[TOKEN_USAGE]{str(token_usage)}"
                 
         else:
             logger.info("Using direct OpenAI completion")
@@ -298,7 +298,7 @@ async def generate_stream_response(query: str, files: List[str], chat_history: L
                     logger.info(f"Token usage for direct completion: {token_usage}")
             
             # Yield token usage as a special marker
-            yield f"\n\n[TOKEN_USAGE]{token_usage}"
+            yield f"\n\n[TOKEN_USAGE]{str(token_usage)}"
     except Exception as e:
         logger.error(f"Error in generate_stream_response: {str(e)}")
         yield f"Error: {str(e)}"
