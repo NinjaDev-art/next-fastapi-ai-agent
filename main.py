@@ -248,20 +248,20 @@ async def generate_stream_response(query: str, files: List[str], chat_history: L
             # Track token usage
             token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
             
-            # Stream the response
-            async for chunk in rag_chain.astream(query):
-                yield chunk
-                await asyncio.sleep(0.01)
-            
-            # Get token usage from the last response
-            if hasattr(llm, 'last_response'):
-                usage = llm.last_response.usage
-                token_usage = {
-                    "prompt_tokens": usage.prompt_tokens,
-                    "completion_tokens": usage.completion_tokens,
-                    "total_tokens": usage.total_tokens
-                }
-                print(token_usage)
+            # Stream the response and track events
+            async for event in rag_chain.astream_events(query):
+                if event["event"] == "on_chat_model_end":
+                    usage = event["data"]["output"].usage_metadata
+                    if usage:
+                        token_usage = {
+                            "prompt_tokens": usage.get("prompt_tokens", 0),
+                            "completion_tokens": usage.get("completion_tokens", 0),
+                            "total_tokens": usage.get("total_tokens", 0)
+                        }
+                        logger.info(f"Token usage for RAG: {token_usage}")
+                elif event["event"] == "on_chain_stream":
+                    yield event["data"]["chunk"]
+                    await asyncio.sleep(0.01)
             
             # Yield token usage as a special marker
             yield f"\n\n[TOKEN_USAGE]{token_usage}"
@@ -276,24 +276,26 @@ async def generate_stream_response(query: str, files: List[str], chat_history: L
                 messages=messages,
                 stream=True,
                 temperature=0.7,
+                stream_options={"include_usage": True}
             )
             
             token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
             
             for chunk in stream:
-                if chunk.choices[0].delta.content is not None:
+                # Handle content chunks
+                if chunk.choices and chunk.choices[0].delta.content is not None:
                     content = chunk.choices[0].delta.content
                     yield content
                     await asyncio.sleep(0.01)
                 
-                # Update token usage from the last chunk
-                if hasattr(chunk, 'usage'):
+                # Handle usage information
+                if hasattr(chunk, 'usage') and chunk.usage is not None:
                     token_usage = {
                         "prompt_tokens": chunk.usage.prompt_tokens,
                         "completion_tokens": chunk.usage.completion_tokens,
                         "total_tokens": chunk.usage.total_tokens
                     }
-                    print(token_usage)
+                    logger.info(f"Token usage for direct completion: {token_usage}")
             
             # Yield token usage as a special marker
             yield f"\n\n[TOKEN_USAGE]{token_usage}"
