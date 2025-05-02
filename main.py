@@ -30,6 +30,7 @@ import openpyxl
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import MongoClient
 from fastapi.middleware.cors import CORSMiddleware
+from bson import ObjectId
 
 # Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -46,6 +47,8 @@ DB_NAME = os.getenv("DB_NAME", "edith")
 client = MongoClient(MONGO_URI)
 db = client[DB_NAME]
 admin_collection = db["admin"]
+ai_collection = db["ai"]
+router_collection = db["router"]  # Add router collection
 
 # Get system prompt from MongoDB
 def get_system_prompt() -> str:
@@ -118,7 +121,7 @@ class ChatRequest(BaseModel):
     files: List[str] = []
     chatHistory: List[IRouterChatLog] = []
     sessionId: str = ""
-    reGenerate: bool = False
+    email: str = ""
 
 app = FastAPI()
 
@@ -291,9 +294,112 @@ def get_chat_messages(chat_history: List[IRouterChatLog]) -> List[dict]:
             messages.append({"role": "assistant", "content": chat.response})
     return messages
 
-async def generate_stream_response(query: str, files: List[str], chat_history: List[IRouterChatLog]) -> AsyncGenerator[str, None]:
-    logger.info(f"Generating response for query: {query}")
+class AiConfig(BaseModel):
+    name: str
+    inputCost: float
+    outputCost: float
+    multiplier: float
+    model: str
+    provider: str
+
+def get_ai_config(ai_id: str) -> Optional[AiConfig]:
     try:
+        ai_doc = ai_collection.find_one({"_id": ObjectId(ai_id)})
+        if ai_doc:
+            return AiConfig(
+                name=ai_doc["name"],
+                inputCost=ai_doc["inputCost"],
+                outputCost=ai_doc["outputCost"],
+                multiplier=ai_doc["multiplier"],
+                model=ai_doc["model"],
+                provider=ai_doc["provider"]
+            )
+        else:
+            logger.warning(f"No AI config found for ID: {ai_id}")
+            return None
+    except Exception as e:
+        logger.error(f"Error fetching AI config from MongoDB: {str(e)}")
+        return None
+
+def get_points(inputToken: int, outputToken: int, ai_config: AiConfig) -> float:
+    return (inputToken * ai_config.inputCost + outputToken * ai_config.outputCost) * ai_config.multiplier / 0.001
+
+async def save_chat_log(query: str, files: List[str], model: str, email: str, points: int, token_usage: dict, full_response: str, outputTime: int, sessionId: str, reGenerate: bool):
+    try:
+        # Create common chat object structure
+        new_chat = {
+            "prompt": query,
+            "model": model,
+            "response": full_response,
+            "timestamp": datetime.now(),
+            "inputToken": token_usage["prompt_tokens"],
+            "outputToken": token_usage["completion_tokens"],
+            "outputTime": outputTime,
+            "fileUrls": files,
+            "points": points
+        }
+
+        # Find or create router document
+        router_doc = router_collection.find_one({"email": email})
+        
+        if not router_doc:
+            # Create new router document with initial session
+            title = full_response.split("\n\n")[0]
+            router_collection.insert_one({
+                "email": email,
+                "session": [{
+                    "id": sessionId,
+                    "title": title,
+                    "chats": [new_chat]
+                }]
+            })
+            return
+
+        # Find existing session or create new one
+        sessions = router_doc.get("session", [])
+        session_index = next((i for i, s in enumerate(sessions) if s["id"] == sessionId), -1)
+
+        if session_index == -1:
+            # Create new session
+            title = full_response.split("\n\n")[0]
+            sessions.append({
+                "id": sessionId,
+                "title": title,
+                "chats": [new_chat]
+            })
+        else:
+            # Update existing session
+            current_session = sessions[session_index]
+            if reGenerate and current_session["chats"]:
+                current_session["chats"][-1] = new_chat
+            else:
+                current_session["chats"].append(new_chat)
+
+        # Update the document
+        router_collection.update_one(
+            {"email": email},
+            {"$set": {"session": sessions}}
+        )
+
+    except Exception as e:
+        logger.error(f"Error saving chat log: {str(e)}")
+        raise
+
+async def generate_stream_response(query: str, files: List[str], chat_history: List[IRouterChatLog], model: str, email: str, sessionId: str, reGenerate: bool) -> AsyncGenerator[str, None]:
+    logger.info(f"Generating response for query: {query}")
+    full_response = ""
+    points = 0
+    # Track token usage and cost
+    token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    outputTime = datetime.now()
+
+    try:
+        # Get AI configuration
+        ai_config = get_ai_config(model)
+        if not ai_config:
+            yield "Error: Invalid AI configuration"
+            return
+
         if files:
             logger.info("Using RAG with files")
             vector_store = get_vector_store(files)
@@ -303,8 +409,7 @@ async def generate_stream_response(query: str, files: List[str], chat_history: L
                 temperature=0.7,
                 streaming=True,
                 callbacks=[StreamingStdOutCallbackHandler()],
-                model="gpt-3.5-turbo",
-                stream_usage=True
+                model="gpt-3.5-turbo"
             )
             
             # Create a prompt template with system message and chat history
@@ -327,9 +432,6 @@ async def generate_stream_response(query: str, files: List[str], chat_history: L
                 | StrOutputParser()
             )
             
-            # Track token usage
-            token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-            
             # Stream the response and track events
             async for event in rag_chain.astream_events(query):
                 if event["event"] == "on_chat_model_end":
@@ -340,17 +442,23 @@ async def generate_stream_response(query: str, files: List[str], chat_history: L
                             "completion_tokens": usage.get("output_tokens", 0),
                             "total_tokens": usage.get("total_tokens", 0)
                         }
-                        logger.info(f"Token usage for RAG: {token_usage}")
+                        # Calculate cost
+                        points = get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
+                        logger.info(f"Token usage for RAG: {token_usage}, Cost: ${points:.6f}")
                 elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
                     chunk = event["data"]["chunk"]
                     if isinstance(chunk, str):
+                        full_response += chunk
                         yield chunk
                     else:
+                        full_response += str(chunk)
                         yield str(chunk)
                     await asyncio.sleep(0.01)
             
-            # Yield token usage as a special marker
-            yield f"\n\n[TOKEN_USAGE]{str(token_usage)}"
+            points = get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
+            # Yield token usage and cost as a special marker
+            # yield f"\n\n[TOKEN_USAGE]{str(token_usage)}[COST]{cost:.6f}[POINTS]{points}"
+            yield f"\n\n[POINTS]{points}"
                 
         else:
             logger.info("Using direct OpenAI completion")
@@ -365,15 +473,15 @@ async def generate_stream_response(query: str, files: List[str], chat_history: L
                 stream_options={"include_usage": True}
             )
             
-            token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-            
             for chunk in stream:
                 # Handle content chunks
                 if chunk.choices and chunk.choices[0].delta.content is not None:
                     content = chunk.choices[0].delta.content
                     if isinstance(content, str):
+                        full_response += content
                         yield content
                     else:
+                        full_response += str(content)
                         yield str(content)
                     await asyncio.sleep(0.01)
                 
@@ -384,10 +492,18 @@ async def generate_stream_response(query: str, files: List[str], chat_history: L
                         "completion_tokens": chunk.usage.completion_tokens,
                         "total_tokens": chunk.usage.total_tokens
                     }
-                    logger.info(f"Token usage for direct completion: {token_usage}")
+                    # Calculate cost
+                    points = get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
+                    logger.info(f"Token usage for direct completion: {token_usage}, Cost: ${points}")
             
-            # Yield token usage as a special marker
-            yield f"\n\n[TOKEN_USAGE]{str(token_usage)}"
+            # Yield token usage and cost as a special marker
+            # yield f"\n\n[TOKEN_USAGE]{str(token_usage)}[COST]{cost:.6f}"
+            yield f"\n\n[POINTS]{points}"
+        
+        outputTime = (datetime.now() - outputTime).total_seconds()
+        yield f"\n\n[OUTPUT_TIME]{outputTime}"
+        await save_chat_log(query, files, model, email, points, token_usage, full_response, outputTime, sessionId, reGenerate)
+        
     except Exception as e:
         logger.error(f"Error in generate_stream_response: {str(e)}")
         yield f"Error: {str(e)}"
@@ -399,7 +515,7 @@ async def chat_stream(request: ChatRequest):
     logger.info(f"Chat history length: {len(request.chatHistory)}")
     
     return StreamingResponse(
-        generate_stream_response(request.prompt, request.files, request.chatHistory),
+        generate_stream_response(request.prompt, request.files, request.chatHistory, request.model, request.email, request.sessionId, request.reGenerate),
         media_type="text/event-stream"
     )
     

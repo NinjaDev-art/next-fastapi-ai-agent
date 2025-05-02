@@ -1,5 +1,5 @@
 .env
-/.venv
-/__pycache__
+.venv/
+__pycache__/
 pyvenv.cfg
-/chroma_db
+chroma_db/
