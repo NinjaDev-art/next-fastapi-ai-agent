@@ -2,3 +2,4 @@
 /.venv
 /__pycache__
 pyvenv.cfg
+/chroma_db
