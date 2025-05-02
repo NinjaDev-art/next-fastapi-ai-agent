@@ -12,9 +12,9 @@ class Database:
     def __init__(self):
         self.client = MongoClient(settings.MONGODB_URI)
         self.db = self.client[settings.DB_NAME]
-        self.admin_collection = self.db["admin"]
-        self.ai_collection = self.db["ai"]
-        self.router_collection = self.db["router"]
+        self.admin_collection = self.db["admins"]
+        self.ai_collection = self.db["ais"]
+        self.router_collection = self.db["routerchats"]
 
     def get_system_prompt(self) -> str:
         try:
