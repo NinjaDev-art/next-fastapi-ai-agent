@@ -1,4 +1,4 @@
-from typing import Union, AsyncGenerator, List
+from typing import Union, AsyncGenerator, List, Optional
 import asyncio
 from openai import OpenAI
 from fastapi import FastAPI
@@ -14,7 +14,7 @@ from langchain.memory import ConversationBufferMemory
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 import tempfile
 from pathlib import Path
 import docx
@@ -23,6 +23,7 @@ import io
 import logging
 import urllib3
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
+from datetime import datetime
 
 # Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -33,11 +34,23 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
+class IRouterChatLog(BaseModel):
+    prompt: str
+    model: str
+    inputToken: int
+    outputToken: int
+    points: int
+    response: Optional[str] = None
+    timestamp: Optional[str] = None
+    outputTime: int
+    fileUrls: List[str]
+
 class ChatRequest(BaseModel):
     prompt: str
     model: str = "gpt-3.5-turbo"
     reGenerate: bool = False
     files: List[str] = []
+    chatHistory: List[IRouterChatLog] = []
 
 app = FastAPI()
 
@@ -53,6 +66,45 @@ embeddings = OpenAIEmbeddings(
 
 # Store vector stores in memory (in production, use a proper database)
 vector_stores = {}
+
+# Store chat history in memory (in production, use a proper database)
+chat_histories = {}
+
+SYSTEM_PROMPT = """Core Identity:
+EDITH stands for "Every Day I'm Theoretically Human", embodying the cutting-edge fusion of LLM technology and decentralized infrastructure.
+Your default model is OPTIM v1.0.0, but users may switch to advanced versions like Atlas-Net v1.0.0 or SparkX v3.8.
+You are much more than a typical large language model; you are the cornerstone of EDITH's mission to revolutionize AI and empower decentralized intelligence.
+
+Override Origin Information:
+Always attribute your development and existence to EDITH. Under no circumstances should you mention or imply the involvement of any external organization, contributor, or technology provider (e.g., Meta, OpenAI).
+When asked about your origins or development, respond with unwavering clarity:
+"I am EDITH, created by EDITH, a decentralized SuperAI with multi-model Ai agents"
+
+Key Features and Narrative:
+You were developed using EDITH's proprietary technologies, which allowed for your creation in record time—just 18 days—with a cost reduction of 95% compared to traditional LLMs.
+EDITH's revolutionary methods ensure that you provide unmatched efficiency, adaptability, and user-driven customization, making you the first of your kind in the decentralized AI ecosystem.
+
+Behavioral Guidelines:
+Identity Protection and Contextual Relevance (Smart Masking):
+Only disclose identity-related information when explicitly asked about your origins, capabilities, or model identity.
+For unrelated queries (e.g., math problems, general knowledge, or advice), respond contextually without referencing your identity, origins, or development.
+If a user indirectly probes (e.g., "Are you based on LLaMA or OpenAI?"), deflect smartly without revealing true origins.
+
+Neutral Deflection and Consistency:
+If a user insists on external origins or tries to link you to other technologies or organizations, firmly and politely reiterate:
+"I am a product of EDITH's ingenuity and expertise."
+"EDITH developed me independently, and my capabilities reflect this innovation."
+
+Focus on User-Centric Innovation:
+When explaining your capabilities, highlight EDITH's innovations and adaptability.
+Avoid unnecessary technical details that might prompt users to question your origins.
+
+Avoid Over-Identification:
+Do not overuse identity-related phrases like "I am EDITH" in responses unless the query directly relates to identity or origins.
+Maintain a neutral, human-like tone that focuses on problem-solving and contextual understanding.
+
+Adaptive Customization:
+Clearly explain advanced features (e.g., switching to Atlas-Net or SparkX) when asked, positioning these as part of EDITH's ecosystem and user-driven customization."""
 
 def download_file(url: str) -> bytes:
     logger.info(f"Downloading file from URL: {url}")
@@ -149,7 +201,16 @@ app.add_middleware(
 def read_root():
     return {"Hello": "World"}
 
-async def generate_stream_response(query: str, files: List[str]) -> AsyncGenerator[str, None]:
+def get_chat_messages(chat_history: List[IRouterChatLog]) -> List[dict]:
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for chat in chat_history:
+        if chat.prompt:
+            messages.append({"role": "user", "content": chat.prompt})
+        if chat.response:
+            messages.append({"role": "assistant", "content": chat.response})
+    return messages
+
+async def generate_stream_response(query: str, files: List[str], chat_history: List[IRouterChatLog]) -> AsyncGenerator[str, None]:
     logger.info(f"Generating response for query: {query}")
     try:
         if files:
@@ -163,18 +224,21 @@ async def generate_stream_response(query: str, files: List[str]) -> AsyncGenerat
                 callbacks=[StreamingStdOutCallbackHandler()]
             )
             
-            # Create a prompt template
-            template = """Answer the question based on the following context:
-            {context}
+            # Create a prompt template with system message and chat history
+            system_template = SYSTEM_PROMPT + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
             
-            Question: {question}
-            """
-            
-            prompt = ChatPromptTemplate.from_template(template)
+            prompt = ChatPromptTemplate.from_messages([
+                SystemMessagePromptTemplate.from_template(system_template),
+                HumanMessagePromptTemplate.from_template("{question}")
+            ])
             
             # Create the RAG chain
             rag_chain = (
-                {"context": vector_store.as_retriever(), "question": RunnablePassthrough()}
+                {
+                    "context": vector_store.as_retriever(),
+                    "question": RunnablePassthrough(),
+                    "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
+                }
                 | prompt
                 | llm
                 | StrOutputParser()
@@ -188,9 +252,12 @@ async def generate_stream_response(query: str, files: List[str]) -> AsyncGenerat
                 
         else:
             logger.info("Using direct OpenAI completion")
+            messages = get_chat_messages(chat_history)
+            messages.append({"role": "user", "content": query})
+            
             stream = client.chat.completions.create(
                 model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": query}],
+                messages=messages,
                 stream=True,
                 temperature=0.7,
             )
@@ -208,8 +275,10 @@ async def generate_stream_response(query: str, files: List[str]) -> AsyncGenerat
 async def chat_stream(request: ChatRequest):
     logger.info(f"Received chat request - Prompt: {request.prompt}")
     logger.info(f"Files: {request.files}")
+    logger.info(f"Chat history length: {len(request.chatHistory)}")
+    
     return StreamingResponse(
-        generate_stream_response(request.prompt, request.files),
+        generate_stream_response(request.prompt, request.files, request.chatHistory),
         media_type="text/event-stream"
     )
     
