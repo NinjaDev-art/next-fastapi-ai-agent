@@ -8,7 +8,6 @@ import os
 from dotenv import load_dotenv
 import requests
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-# from langchain_community.embeddings import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
@@ -20,6 +19,7 @@ from PyPDF2 import PdfReader
 import io
 import logging
 import urllib3
+from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 
 # Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -48,21 +48,6 @@ embeddings = OpenAIEmbeddings(
     model=model_name,
     openai_api_key=os.getenv("OPENAI_API_KEY")
 )
-
-# Initialize embeddings with retry logic
-# def get_embeddings():
-#     max_retries = 3
-#     for attempt in range(max_retries):
-#         try:
-#             return OpenAIEmbeddings()
-#         except Exception as e:
-#             if attempt == max_retries - 1:
-#                 logger.error(f"Failed to initialize embeddings after {max_retries} attempts: {str(e)}")
-#                 raise
-#             logger.warning(f"Attempt {attempt + 1} failed to initialize embeddings: {str(e)}")
-#             continue
-
-# embeddings = get_embeddings()
 
 # Store vector stores in memory (in production, use a proper database)
 vector_stores = {}
@@ -122,9 +107,9 @@ def process_files(files: List[str]) -> str:
 
 def get_vector_store(session_id: str, files: List[str]) -> FAISS:
     logger.info(f"Getting vector store for session: {session_id}")
-    if session_id in vector_stores:
-        logger.info("Using cached vector store")
-        return vector_stores[session_id]
+    # if session_id in vector_stores:
+    #     logger.info("Using cached vector store")
+    #     return vector_stores[session_id]
     
     try:
         # Process files and create vector store
@@ -172,17 +157,32 @@ async def generate_stream_response(query: str, session_id: str, files: List[str]
             )
             
             logger.info("Creating QA chain")
+            # Create a streaming LLM
+            llm = ChatOpenAI(
+                temperature=0.7,
+                streaming=True,
+                callbacks=[StreamingStdOutCallbackHandler()]
+            )
+            
             qa_chain = ConversationalRetrievalChain.from_llm(
-                llm=ChatOpenAI(temperature=0.7, streaming=True),
+                llm=llm,
                 retriever=vector_store.as_retriever(),
-                memory=memory
+                memory=memory,
+                return_source_documents=True,
+                output_key="answer"
             )
             
             logger.info("Running QA chain")
-            response = qa_chain({"question": query})
-            logger.info("QA chain completed")
-            print(response)
-            yield response["answer"]
+            response = qa_chain.invoke({"question": query})
+            answer = response["answer"]
+            
+            # Stream the answer in smaller chunks
+            chunk_size = 10
+            for i in range(0, len(answer), chunk_size):
+                chunk = answer[i:i + chunk_size]
+                yield chunk
+                await asyncio.sleep(0.01)
+                
         else:
             logger.info("Using direct OpenAI completion")
             stream = client.chat.completions.create(
@@ -195,7 +195,6 @@ async def generate_stream_response(query: str, session_id: str, files: List[str]
             for chunk in stream:
                 if chunk.choices[0].delta.content is not None:
                     content = chunk.choices[0].delta.content
-                    print(content)
                     yield content
                     await asyncio.sleep(0.01)
     except Exception as e:
