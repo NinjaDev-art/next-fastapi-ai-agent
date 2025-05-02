@@ -14,7 +14,7 @@ from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from ..config.settings import settings
 from ..core.database import db
 from ..models.chat import ChatRequest, IRouterChatLog, AiConfig
-from ..utils.file_processor import process_files
+from ..utils.file_processor import file_processor
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +179,7 @@ class ChatService:
         logger.info(f"Processing files: {files}")
         try:
             # Process files and create vector store
-            text = process_files(files)
+            text = file_processor.process_files(files)
             logger.info("Creating text splitter")
             text_splitter = RecursiveCharacterTextSplitter(
                 chunk_size=1000,
