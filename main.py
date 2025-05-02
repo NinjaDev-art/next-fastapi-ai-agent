@@ -260,7 +260,11 @@ async def generate_stream_response(query: str, files: List[str], chat_history: L
                         }
                         logger.info(f"Token usage for RAG: {token_usage}")
                 elif event["event"] == "on_chain_stream":
-                    yield event["data"]["chunk"]
+                    chunk = event["data"]["chunk"]
+                    if isinstance(chunk, str):
+                        yield chunk
+                    else:
+                        yield str(chunk)
                     await asyncio.sleep(0.01)
             
             # Yield token usage as a special marker
@@ -285,7 +289,10 @@ async def generate_stream_response(query: str, files: List[str], chat_history: L
                 # Handle content chunks
                 if chunk.choices and chunk.choices[0].delta.content is not None:
                     content = chunk.choices[0].delta.content
-                    yield content
+                    if isinstance(content, str):
+                        yield content
+                    else:
+                        yield str(content)
                     await asyncio.sleep(0.01)
                 
                 # Handle usage information
