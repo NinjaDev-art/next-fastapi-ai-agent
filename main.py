@@ -255,8 +255,8 @@ async def generate_stream_response(query: str, files: List[str], chat_history: L
                     usage = event["data"]["output"].usage_metadata
                     if usage:
                         token_usage = {
-                            "prompt_tokens": usage.get("prompt_tokens", 0),
-                            "completion_tokens": usage.get("completion_tokens", 0),
+                            "prompt_tokens": usage.get("input_tokens", 0),
+                            "completion_tokens": usage.get("output_tokens", 0),
                             "total_tokens": usage.get("total_tokens", 0)
                         }
                         logger.info(f"Token usage for RAG: {token_usage}")
