@@ -8,7 +8,7 @@ import os
 from dotenv import load_dotenv
 import requests
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import FAISS
+from langchain_community.vectorstores import Chroma
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -107,7 +107,7 @@ def process_files(files: List[str]) -> str:
             raise
     return all_text
 
-def get_vector_store(files: List[str]) -> FAISS:
+def get_vector_store(files: List[str]) -> Chroma:
     logger.info(f"Processing files: {files}")
     try:
         # Process files and create vector store
@@ -122,7 +122,13 @@ def get_vector_store(files: List[str]) -> FAISS:
         logger.info(f"Split text into {len(texts)} chunks")
         
         logger.info("Creating vector store")
-        vector_store = FAISS.from_texts(texts, embeddings)
+        # Create a temporary directory for Chroma
+        persist_directory = "chroma_db"
+        vector_store = Chroma.from_texts(
+            texts=texts,
+            embedding=embeddings,
+            persist_directory=persist_directory
+        )
         logger.info("Vector store created")
         return vector_store
     except Exception as e:
@@ -176,7 +182,7 @@ async def generate_stream_response(query: str, files: List[str]) -> AsyncGenerat
             
             # Stream the response
             async for chunk in rag_chain.astream(query):
-                logger.info(f"Chunk: {chunk}")
+                print("chunk", chunk)
                 yield chunk
                 await asyncio.sleep(0.01)
                 
