@@ -222,7 +222,8 @@ async def generate_stream_response(query: str, files: List[str], chat_history: L
                 temperature=0.7,
                 streaming=True,
                 callbacks=[StreamingStdOutCallbackHandler()],
-                model="gpt-3.5-turbo"
+                model="gpt-3.5-turbo",
+                stream_usage=True
             )
             
             # Create a prompt template with system message and chat history
