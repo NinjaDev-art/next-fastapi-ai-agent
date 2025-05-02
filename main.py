@@ -341,7 +341,7 @@ async def generate_stream_response(query: str, files: List[str], chat_history: L
                             "total_tokens": usage.get("total_tokens", 0)
                         }
                         logger.info(f"Token usage for RAG: {token_usage}")
-                elif event["event"] == "on_chain_stream":
+                elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
                     chunk = event["data"]["chunk"]
                     if isinstance(chunk, str):
                         yield chunk
