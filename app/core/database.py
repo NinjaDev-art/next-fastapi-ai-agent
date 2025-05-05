@@ -15,6 +15,8 @@ class Database:
         self.admin_collection = self.db["admins"]
         self.ai_collection = self.db["ais"]
         self.router_collection = self.db["routerchats"]
+        self.user_collection = self.db["users"]
+        self.plan_collection = self.db["plans"]
 
     def get_system_prompt(self) -> str:
         try:
@@ -94,4 +96,44 @@ class Database:
             logger.error(f"Error saving chat log: {str(e)}")
             raise
 
+    async def get_user_by_email(self, email: str) -> Optional[dict]:
+        try:
+            user_doc = self.user_collection.find_one({"email": email})
+            if user_doc:
+                current_plan = user_doc.get("currentplan", "free")
+                pointsUsed = user_doc.get("pointsUsed", 0)
+                planStartDate = user_doc.get("planStartDate", None)
+                planEndDate = user_doc.get("planEndDate", None)
+                if current_plan == "free":
+                    plan_doc = self.plan_collection.find_one({"type": "free"})
+                    if plan_doc:
+                        return {
+                            "availablePoints": plan_doc["points"] + plan_doc["bonusPoints"],
+                            "pointsUsed": pointsUsed,
+                            "planStartDate": planStartDate,
+                            "planEndDate": planEndDate,
+                            "currentplan": current_plan
+                        }
+                    else:
+                        logger.warning(f"No plan found for email: {email}")
+                        return None
+                else:
+                    plan_doc = self.plan_collection.find_one({"_id": ObjectId(current_plan)})
+                    if plan_doc:
+                        return {
+                            "availablePoints": plan_doc["points"] + plan_doc["bonusPoints"],
+                            "pointsUsed": pointsUsed,
+                            "planStartDate": planStartDate,
+                            "planEndDate": planEndDate,
+                            "currentplan": current_plan
+                        }
+                    else:
+                        logger.warning(f"No plan found for email: {email}")
+                        return None
+            else:
+                logger.warning(f"No user found for email: {email}")
+                return None
+        except Exception as e:
+            logger.error(f"Error fetching user by email: {str(e)}")
+            return None
 db = Database() 

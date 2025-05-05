@@ -3,9 +3,12 @@ import asyncio
 from datetime import datetime
 import logging
 from openai import OpenAI
+import anthropic
+import tiktoken
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
@@ -16,18 +19,21 @@ from ..config.settings import settings
 from ..core.database import db
 from ..models.chat import ChatRequest, IRouterChatLog, AiConfig
 from ..utils.file_processor import file_processor
+from ..utils.user_point import user_point
 
 logger = logging.getLogger(__name__)
 
 class ChatService:
     def __init__(self):
-        self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        self.openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        self.anthropic_client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
         self.embeddings = HuggingFaceEmbeddings(
             model_name=settings.EMBEDDING_MODEL,
             model_kwargs={"device": "cpu"},
             encode_kwargs={"normalize_embeddings": True}
         )
         self.vector_stores = {}
+        self.encoding = tiktoken.encoding_for_model(settings.DEFAULT_MODEL)
 
     def get_chat_messages(self, chat_history: List[IRouterChatLog]) -> List[dict]:
         messages = [{"role": "system", "content": db.get_system_prompt()}]
@@ -40,6 +46,26 @@ class ChatService:
 
     def get_points(self, inputToken: int, outputToken: int, ai_config: AiConfig) -> float:
         return (inputToken * ai_config.inputCost + outputToken * ai_config.outputCost) * ai_config.multiplier / 0.001
+
+    def _get_llm(self, ai_config: AiConfig):
+        if ai_config.provider.lower() == "anthropic":
+            return ChatAnthropic(
+                temperature=0.7,
+                streaming=True,
+                callbacks=[StreamingStdOutCallbackHandler()],
+                model=ai_config.model,
+                anthropic_api_key=settings.ANTHROPIC_API_KEY,
+                stream_usage=True
+            )
+        else:  # Default to OpenAI
+            return ChatOpenAI(
+                temperature=0.7,
+                streaming=True,
+                callbacks=[StreamingStdOutCallbackHandler()],
+                model=ai_config.model,
+                openai_api_key=settings.OPENAI_API_KEY,
+                stream_usage=True
+            )
 
     async def generate_stream_response(
         self,
@@ -67,15 +93,21 @@ class ChatService:
                 logger.info("Using RAG with files")
                 vector_store = self._get_vector_store(files)
                 
-                llm = ChatOpenAI(
-                    temperature=0.7,
-                    streaming=True,
-                    callbacks=[StreamingStdOutCallbackHandler()],
-                    model=settings.DEFAULT_MODEL,
-                    openai_api_key=settings.OPENAI_API_KEY,
-                    stream_usage=True
-                )
+                # Get messages for token estimation
+                messages = self.get_chat_messages(chat_history)
+                messages.append({"role": "user", "content": query})
                 
+                # Estimate tokens before making the API call
+                estimated_tokens = self.estimate_total_tokens(messages, system_template)
+                estimated_points = self.get_points(estimated_tokens["prompt_tokens"], 0, ai_config)
+                logger.info(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
+                
+                check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points)
+                if not check_user_available_to_chat:
+                    yield "Error: User has no available points"
+                    return
+                
+                llm = self._get_llm(ai_config)
                 system_template = db.get_system_prompt() + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
                 
                 prompt = ChatPromptTemplate.from_messages([
@@ -119,37 +151,75 @@ class ChatService:
                 yield f"\n\n[POINTS]{points}"
                 
             else:
-                logger.info("Using direct OpenAI completion")
+                logger.info(f"Using direct {ai_config.provider} completion")
                 messages = self.get_chat_messages(chat_history)
                 messages.append({"role": "user", "content": query})
                 
-                stream = self.client.chat.completions.create(
-                    model=settings.DEFAULT_MODEL,
-                    messages=messages,
-                    stream=True,
-                    temperature=0.7,
-                    stream_options={"include_usage": True}
-                )
+                # Estimate tokens before making the API call
+                estimated_tokens = self.estimate_total_tokens(messages)
+                estimated_points = self.get_points(estimated_tokens["prompt_tokens"], 0, ai_config)
+                logger.info(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
                 
-                for chunk in stream:
-                    if chunk.choices and chunk.choices[0].delta.content is not None:
-                        content = chunk.choices[0].delta.content
-                        if isinstance(content, str):
-                            full_response += content
-                            yield content
-                        else:
-                            full_response += str(content)
-                            yield str(content)
-                        await asyncio.sleep(0.01)
+                check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points)
+                if not check_user_available_to_chat:
+                    yield "Error: User has no available points"
+                    return
+                
+                if ai_config.provider.lower() == "anthropic":
+                    stream = self.anthropic_client.messages.create(
+                        model=ai_config.model,
+                        messages=messages,
+                        stream=True,
+                        temperature=0.7
+                    )
                     
-                    if hasattr(chunk, 'usage') and chunk.usage is not None:
-                        token_usage = {
-                            "prompt_tokens": chunk.usage.prompt_tokens,
-                            "completion_tokens": chunk.usage.completion_tokens,
-                            "total_tokens": chunk.usage.total_tokens
-                        }
-                        points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
-                        logger.info(f"Token usage for direct completion: {token_usage}, Cost: ${points}")
+                    for chunk in stream:
+                        if chunk.type == "content_block_delta":
+                            content = chunk.delta.text
+                            if isinstance(content, str):
+                                full_response += content
+                                yield content
+                            else:
+                                full_response += str(content)
+                                yield str(content)
+                            await asyncio.sleep(0.01)
+                        
+                        if chunk.type == "message_delta" and chunk.usage:
+                            token_usage = {
+                                "prompt_tokens": chunk.usage.input_tokens,
+                                "completion_tokens": chunk.usage.output_tokens,
+                                "total_tokens": chunk.usage.input_tokens + chunk.usage.output_tokens
+                            }
+                            points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
+                            logger.info(f"Token usage for Anthropic completion: {token_usage}, Cost: ${points}")
+                else:  # Default to OpenAI
+                    stream = self.openai_client.chat.completions.create(
+                        model=ai_config.model,
+                        messages=messages,
+                        stream=True,
+                        temperature=0.7,
+                        stream_options={"include_usage": True}
+                    )
+                    
+                    for chunk in stream:
+                        if chunk.choices and chunk.choices[0].delta.content is not None:
+                            content = chunk.choices[0].delta.content
+                            if isinstance(content, str):
+                                full_response += content
+                                yield content
+                            else:
+                                full_response += str(content)
+                                yield str(content)
+                            await asyncio.sleep(0.01)
+                        
+                        if hasattr(chunk, 'usage') and chunk.usage is not None:
+                            token_usage = {
+                                "prompt_tokens": chunk.usage.prompt_tokens,
+                                "completion_tokens": chunk.usage.completion_tokens,
+                                "total_tokens": chunk.usage.total_tokens
+                            }
+                            points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
+                            logger.info(f"Token usage for OpenAI completion: {token_usage}, Cost: ${points}")
                 
                 yield f"\n\n[POINTS]{points}"
             
@@ -173,7 +243,7 @@ class ChatService:
                     "points": points
                 }
             })
-            
+            await user_point.save_user_points(points)
         except Exception as e:
             logger.error(f"Error in generate_stream_response: {str(e)}")
             yield f"Error: {str(e)}"
@@ -207,5 +277,44 @@ class ChatService:
             logger.error(f"Error creating vector store: {str(e)}")
             raise
         pass
+
+    def estimate_tokens(self, messages: List[dict]) -> int:
+        """
+        Estimate the number of tokens for a list of messages.
+        This follows OpenAI's token counting rules for chat completions.
+        """
+        num_tokens = 0
+        for message in messages:
+            num_tokens += 4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
+            for key, value in message.items():
+                num_tokens += len(self.encoding.encode(value))
+                if key == "name":  # if there's a name, the role is omitted
+                    num_tokens += -1  # role is always required and always 1 token
+        num_tokens += 2  # every reply is primed with <im_start>assistant
+        return num_tokens
+
+    def estimate_response_tokens(self, prompt_tokens: int) -> int:
+        """
+        Estimate the number of tokens in the response based on the prompt tokens.
+        This is a rough estimation as the actual response length can vary.
+        """
+        # A common rule of thumb is that responses are typically 1.5-2x the length of the prompt
+        # We'll use 1.5x as a conservative estimate
+        return int(prompt_tokens * 1.5)
+
+    def estimate_total_tokens(self, messages: List[dict], system_template: str) -> dict:
+        """
+        Estimate total token usage including both prompt and response.
+        Returns a dictionary with estimated token counts.
+        """
+        prompt_tokens = self.estimate_tokens(messages) + len(self.encoding.encode(system_template))
+        response_tokens = self.estimate_response_tokens(prompt_tokens)
+        total_tokens = prompt_tokens + response_tokens
+
+        return {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": response_tokens,
+            "total_tokens": total_tokens
+        }
 
 chat_service = ChatService() 
