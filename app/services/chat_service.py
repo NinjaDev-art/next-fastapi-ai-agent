@@ -84,6 +84,9 @@ class ChatService:
         outputTime = datetime.now()
 
         try:
+            # Initialize user_point with email
+            await user_point.initialize(email)
+            
             ai_config = db.get_ai_config(model)
             if not ai_config:
                 yield "Error: Invalid AI configuration"

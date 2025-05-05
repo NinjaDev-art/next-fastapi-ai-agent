@@ -46,9 +46,9 @@ MONGO_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
 DB_NAME = os.getenv("DB_NAME", "edith")
 client = MongoClient(MONGO_URI)
 db = client[DB_NAME]
-admin_collection = db["admin"]
-ai_collection = db["ai"]
-router_collection = db["router"]  # Add router collection
+admin_collection = db["admins"]
+ai_collection = db["ais"]
+router_collection = db["routers"]  # Add router collection
 
 # Get system prompt from MongoDB
 def get_system_prompt() -> str:
