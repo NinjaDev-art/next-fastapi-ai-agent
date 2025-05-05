@@ -186,7 +186,6 @@ class ChatService:
                         stream=True,
                         temperature=0.7,
                         max_tokens=4096,
-                        stream_options={"include_usage": True}
                     )
                     
                     for chunk in stream:
