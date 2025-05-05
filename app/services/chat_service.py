@@ -160,7 +160,8 @@ class ChatService:
                 messages.append({"role": "user", "content": query})
                 
                 # Estimate tokens before making the API call
-                estimated_tokens = self.estimate_total_tokens(messages)
+                system_template = db.get_system_prompt()
+                estimated_tokens = self.estimate_total_tokens(messages, system_template)
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], 0, ai_config)
                 logger.info(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
                 
