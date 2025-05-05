@@ -185,10 +185,12 @@ class ChatService:
                         system=system_prompt,
                         stream=True,
                         temperature=0.7,
-                        max_tokens=4096
+                        max_tokens=4096,
+                        stream_options={"include_usage": True}
                     )
                     
                     for chunk in stream:
+                        print("chunk", chunk)
                         if chunk.type == "content_block_delta":
                             content = chunk.delta.text
                             if isinstance(content, str):
