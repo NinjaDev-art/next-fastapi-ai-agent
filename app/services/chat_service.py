@@ -9,6 +9,11 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
+from langchain_deepseek import ChatDeepSeek
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_xai import ChatXAI
+from langchain_ollama import ChatOllama
+from langchain_mistralai import ChatMistralAI
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
@@ -62,6 +67,326 @@ class ChatService:
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
                 anthropic_api_key=settings.ANTHROPIC_API_KEY,
+                stream_usage=True
+            )
+        elif ai_config.provider.lower() == "deepseek":
+            return ChatDeepSeek(
+                temperature=0.7,
+                streaming=True,
+                callbacks=[StreamingStdOutCallbackHandler()],
+                model=ai_config.model,
+                deepseek_api_key=settings.DEEPSEEK_API_KEY,
+                stream_usage=True
+            )
+        elif ai_config.provider.lower() == "google":
+            return ChatGoogleGenerativeAI(
+                temperature=0.7,
+                streaming=True,
+                callbacks=[StreamingStdOutCallbackHandler()],
+                model=ai_config.model,
+                google_api_key=settings.GOOGLE_API_KEY,
+                stream_usage=True
+            )
+        elif ai_config.provider.lower() == "xai":
+            return ChatXAI(
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+                temperature=0.7,
+                streaming=True,
+                callbacks=[StreamingStdOutCallbackHandler()],
+                model=ai_config.model,
+                xai_api_key=settings.XAI_API_KEY,
+                stream_usage=True
+            )
+        elif ai_config.provider.lower() == "ollama":
+            return ChatOllama(
+                temperature=0.7,
+                streaming=True,
+                callbacks=[StreamingStdOutCallbackHandler()],
+                model=ai_config.model,
+                base_url=settings.OLLAMA_BASE_URL,
+                stream_usage=True
+            )
+        elif ai_config.provider.lower() == "mistralai":
+            return ChatMistralAI(
+                temperature=0.7,
+                streaming=True,
+                callbacks=[StreamingStdOutCallbackHandler()],
+                model=ai_config.model,
+                mistral_api_key=settings.MISTRAL_API_KEY,
                 stream_usage=True
             )
         else:  # Default to OpenAI
@@ -178,73 +503,42 @@ class ChatService:
                     yield "Error: User has no available points"
                     return
                 
-                if ai_config.provider.lower() == "anthropic":
-                    stream = self.anthropic_client.messages.create(
-                        model=ai_config.model,
-                        messages=messages,
-                        system=system_prompt,
-                        stream=True,
-                        temperature=0.7,
-                        max_tokens=4096,
-                    )
-                    
-                    input_tokens = 0
-                    for chunk in stream:
-                        if chunk.type == "message_start" and chunk.message.usage:
-                            input_tokens = chunk.message.usage.input_tokens
-                            token_usage = {
-                                "prompt_tokens": input_tokens,
-                                "completion_tokens": 0,
-                                "total_tokens": input_tokens
-                            }
-                        elif chunk.type == "content_block_delta":
-                            content = chunk.delta.text
-                            if isinstance(content, str):
-                                full_response += content
-                                yield content
-                            else:
-                                full_response += str(content)
-                                yield str(content)
-                            await asyncio.sleep(0.01)
-                        
-                        if chunk.type == "message_delta" and chunk.usage:
-                            token_usage = {
-                                "prompt_tokens": input_tokens,
-                                "completion_tokens": chunk.usage.output_tokens,
-                                "total_tokens": input_tokens + chunk.usage.output_tokens
-                            }
-                            points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
-                            logger.info(f"Token usage for Anthropic completion: {token_usage}, Cost: ${points}")
-                else:  # Default to OpenAI
-                    stream = self.openai_client.chat.completions.create(
-                        model=ai_config.model,
-                        messages=messages,
-                        stream=True,
-                        temperature=0.7,
-                        max_tokens=4096,
-                        stream_options={"include_usage": True}
-                    )
-                    
-                    for chunk in stream:
-                        if chunk.choices and chunk.choices[0].delta.content is not None:
-                            content = chunk.choices[0].delta.content
-                            if isinstance(content, str):
-                                full_response += content
-                                yield content
-                            else:
-                                full_response += str(content)
-                                yield str(content)
-                            await asyncio.sleep(0.01)
-                        
-                        if hasattr(chunk, 'usage') and chunk.usage is not None:
-                            token_usage = {
-                                "prompt_tokens": chunk.usage.prompt_tokens,
-                                "completion_tokens": chunk.usage.completion_tokens,
-                                "total_tokens": chunk.usage.total_tokens
-                            }
-                            points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
-                            logger.info(f"Token usage for OpenAI completion: {token_usage}, Cost: ${points}")
+                llm = self._get_llm(ai_config)
                 
+                prompt = ChatPromptTemplate.from_messages([
+                    SystemMessagePromptTemplate.from_template(system_template),
+                    HumanMessagePromptTemplate.from_template("{question}")
+                ])
+                
+                chain = (
+                    {"question": RunnablePassthrough()}
+                    | prompt
+                    | llm
+                    | StrOutputParser()
+                )
+                
+                async for event in chain.astream_events(query):
+                    if event["event"] == "on_chat_model_end":
+                        usage = event["data"]["output"].usage_metadata
+                        if usage:
+                            token_usage = {
+                                "prompt_tokens": usage.get("input_tokens", 0),
+                                "completion_tokens": usage.get("output_tokens", 0),
+                                "total_tokens": usage.get("total_tokens", 0)
+                            }
+                            points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
+                            logger.info(f"Token usage for completion: {token_usage}, Cost: ${points:.6f}")
+                    elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
+                        chunk = event["data"]["chunk"]
+                        if isinstance(chunk, str):
+                            full_response += chunk
+                            yield chunk
+                        else:
+                            full_response += str(chunk)
+                            yield str(chunk)
+                        await asyncio.sleep(0.01)
+                
+                points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
                 yield f"\n\n[POINTS]{points}"
             
             outputTime = (datetime.now() - outputTime).total_seconds()
