@@ -100,6 +100,8 @@ class ChatService:
                 messages = self.get_chat_messages(chat_history)
                 messages.append({"role": "user", "content": query})
                 
+                system_template = db.get_system_prompt() + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
+                
                 # Estimate tokens before making the API call
                 estimated_tokens = self.estimate_total_tokens(messages, system_template)
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], 0, ai_config)
@@ -111,7 +113,6 @@ class ChatService:
                     return
                 
                 llm = self._get_llm(ai_config)
-                system_template = db.get_system_prompt() + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
                 
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
