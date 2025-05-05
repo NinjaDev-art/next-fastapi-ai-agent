@@ -136,4 +136,12 @@ class Database:
         except Exception as e:
             logger.error(f"Error fetching user by email: {str(e)}")
             return None
+        
+    async def update_user_points(self, email: str, user_doc: dict):
+        try:
+            await self.user_collection.update_one({"email": email}, {"$set": user_doc})
+        except Exception as e:
+            logger.error(f"Error updating user points: {str(e)}")
+            raise
+    
 db = Database() 
