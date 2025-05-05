@@ -88,6 +88,7 @@ class ChatService:
             await user_point.initialize(email)
             
             ai_config = db.get_ai_config(model)
+            print("ai_config", ai_config)
             if not ai_config:
                 yield "Error: Invalid AI configuration"
                 return
@@ -175,7 +176,8 @@ class ChatService:
                         model=ai_config.model,
                         messages=messages,
                         stream=True,
-                        temperature=0.7
+                        temperature=0.7,
+                        max_tokens=4096
                     )
                     
                     for chunk in stream:
@@ -203,6 +205,7 @@ class ChatService:
                         messages=messages,
                         stream=True,
                         temperature=0.7,
+                        max_tokens=4096,
                         stream_options={"include_usage": True}
                     )
                     
