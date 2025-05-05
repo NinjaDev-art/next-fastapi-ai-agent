@@ -188,9 +188,16 @@ class ChatService:
                         max_tokens=4096,
                     )
                     
+                    input_tokens = 0
                     for chunk in stream:
-                        print("chunk", chunk)
-                        if chunk.type == "content_block_delta":
+                        if chunk.type == "message_start" and chunk.message.usage:
+                            input_tokens = chunk.message.usage.input_tokens
+                            token_usage = {
+                                "prompt_tokens": input_tokens,
+                                "completion_tokens": 0,
+                                "total_tokens": input_tokens
+                            }
+                        elif chunk.type == "content_block_delta":
                             content = chunk.delta.text
                             if isinstance(content, str):
                                 full_response += content
@@ -202,9 +209,9 @@ class ChatService:
                         
                         if chunk.type == "message_delta" and chunk.usage:
                             token_usage = {
-                                "prompt_tokens": chunk.usage.input_tokens,
+                                "prompt_tokens": input_tokens,
                                 "completion_tokens": chunk.usage.output_tokens,
-                                "total_tokens": chunk.usage.input_tokens + chunk.usage.output_tokens
+                                "total_tokens": input_tokens + chunk.usage.output_tokens
                             }
                             points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
                             logger.info(f"Token usage for Anthropic completion: {token_usage}, Cost: ${points}")
