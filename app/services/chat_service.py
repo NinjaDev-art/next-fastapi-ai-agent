@@ -35,14 +35,21 @@ class ChatService:
         self.vector_stores = {}
         self.encoding = tiktoken.encoding_for_model(settings.DEFAULT_MODEL)
 
-    def get_chat_messages(self, chat_history: List[IRouterChatLog]) -> List[dict]:
-        messages = [{"role": "system", "content": db.get_system_prompt()}]
+    def get_chat_messages(self, chat_history: List[IRouterChatLog], provider: str = "openai") -> List[dict]:
+        system_prompt = db.get_system_prompt()
+        messages = []
+        
+        # For Anthropic, we don't include system message in the messages array
+        if provider.lower() != "anthropic":
+            messages.append({"role": "system", "content": system_prompt})
+            
         for chat in chat_history:
             if chat.prompt:
                 messages.append({"role": "user", "content": chat.prompt})
             if chat.response:
                 messages.append({"role": "assistant", "content": chat.response})
-        return messages
+                
+        return messages, system_prompt if provider.lower() == "anthropic" else None
 
     def get_points(self, inputToken: int, outputToken: int, ai_config: AiConfig) -> float:
         return (inputToken * ai_config.inputCost + outputToken * ai_config.outputCost) * ai_config.multiplier / 0.001
@@ -98,10 +105,10 @@ class ChatService:
                 vector_store = self._get_vector_store(files)
                 
                 # Get messages for token estimation
-                messages = self.get_chat_messages(chat_history)
+                messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
                 messages.append({"role": "user", "content": query})
                 
-                system_template = db.get_system_prompt() + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
+                system_template = (system_prompt or db.get_system_prompt()) + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
                 
                 # Estimate tokens before making the API call
                 estimated_tokens = self.estimate_total_tokens(messages, system_template)
@@ -157,11 +164,11 @@ class ChatService:
                 
             else:
                 logger.info(f"Using direct {ai_config.provider} completion")
-                messages = self.get_chat_messages(chat_history)
+                messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
                 messages.append({"role": "user", "content": query})
                 
                 # Estimate tokens before making the API call
-                system_template = db.get_system_prompt()
+                system_template = system_prompt or db.get_system_prompt()
                 estimated_tokens = self.estimate_total_tokens(messages, system_template)
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], 0, ai_config)
                 logger.info(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
@@ -175,6 +182,7 @@ class ChatService:
                     stream = self.anthropic_client.messages.create(
                         model=ai_config.model,
                         messages=messages,
+                        system=system_prompt,
                         stream=True,
                         temperature=0.7,
                         max_tokens=4096
