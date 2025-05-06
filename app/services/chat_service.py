@@ -2,8 +2,6 @@ from typing import AsyncGenerator, List, Optional
 import asyncio
 from datetime import datetime
 import logging
-from openai import OpenAI
-import anthropic
 import tiktoken
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
@@ -19,14 +17,18 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
+from fastapi import HTTPException
 
 from ..config.settings import settings
 from ..core.database import db
-from ..models.chat import ChatRequest, IRouterChatLog, AiConfig
+from ..models.chat import IRouterChatLog, AiConfig
 from ..utils.file_processor import file_processor
 from ..utils.user_point import user_point
 
 logger = logging.getLogger(__name__)
+
+class NoPointsAvailableException(Exception):
+    pass
 
 class ChatService:
     def __init__(self):
@@ -38,7 +40,7 @@ class ChatService:
             encode_kwargs={"normalize_embeddings": True}
         )
         self.vector_stores = {}
-        self.encoding = tiktoken.encoding_for_model(settings.DEFAULT_MODEL)
+        self.encoding = None  # Will be set based on the model being used
 
     def get_chat_messages(self, chat_history: List[IRouterChatLog], provider: str = "openai") -> List[dict]:
         system_prompt = db.get_system_prompt()
@@ -88,283 +90,7 @@ class ChatService:
                 stream_usage=True
             )
         elif ai_config.provider.lower() == "xai":
-            return ChatXAI(
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-                temperature=0.7,
+            return ChatXAI(   temperature=0.7,
                 streaming=True,
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
@@ -436,14 +162,13 @@ class ChatService:
                 system_template = (system_prompt or db.get_system_prompt()) + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
                 
                 # Estimate tokens before making the API call
-                estimated_tokens = self.estimate_total_tokens(messages, system_template)
+                estimated_tokens = self.estimate_total_tokens(messages, system_template, model)
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], 0, ai_config)
                 logger.info(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
                 
                 check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points)
                 if not check_user_available_to_chat:
-                    yield "Error: User has no available points"
-                    return
+                    raise NoPointsAvailableException("User has no available points")
                 
                 llm = self._get_llm(ai_config)
                 
@@ -494,14 +219,13 @@ class ChatService:
                 
                 # Estimate tokens before making the API call
                 system_template = system_prompt or db.get_system_prompt()
-                estimated_tokens = self.estimate_total_tokens(messages, system_template)
+                estimated_tokens = self.estimate_total_tokens(messages, system_template, model)
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], 0, ai_config)
                 logger.info(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
                 
                 check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points)
                 if not check_user_available_to_chat:
-                    yield "Error: User has no available points"
-                    return
+                    raise NoPointsAvailableException("User has no available points")
                 
                 llm = self._get_llm(ai_config)
                 
@@ -562,6 +286,9 @@ class ChatService:
                 }
             })
             await user_point.save_user_points(points)
+        except NoPointsAvailableException as e:
+            logger.error(f"Error in generate_stream_response: {str(e)}")
+            raise HTTPException(status_code=429, detail=str(e))
         except Exception as e:
             logger.error(f"Error in generate_stream_response: {str(e)}")
             yield f"Error: {str(e)}"
@@ -596,16 +323,25 @@ class ChatService:
             raise
         pass
 
-    def estimate_tokens(self, messages: List[dict]) -> int:
+    def _get_encoding(self, model: str):
+        try:
+            return tiktoken.encoding_for_model(model)
+        except KeyError:
+            # Fallback to cl100k_base encoding if model is not found
+            logger.warning(f"Model {model} not found in tiktoken, using cl100k_base encoding")
+            return tiktoken.get_encoding("cl100k_base")
+
+    def estimate_tokens(self, messages: List[dict], model: str) -> int:
         """
         Estimate the number of tokens for a list of messages.
         This follows OpenAI's token counting rules for chat completions.
         """
+        encoding = self._get_encoding(model)
         num_tokens = 0
         for message in messages:
             num_tokens += 4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
             for key, value in message.items():
-                num_tokens += len(self.encoding.encode(value))
+                num_tokens += len(encoding.encode(value))
                 if key == "name":  # if there's a name, the role is omitted
                     num_tokens += -1  # role is always required and always 1 token
         num_tokens += 2  # every reply is primed with <im_start>assistant
@@ -620,12 +356,13 @@ class ChatService:
         # We'll use 1.5x as a conservative estimate
         return int(prompt_tokens * 1.5)
 
-    def estimate_total_tokens(self, messages: List[dict], system_template: str) -> dict:
+    def estimate_total_tokens(self, messages: List[dict], system_template: str, model: str) -> dict:
         """
         Estimate total token usage including both prompt and response.
         Returns a dictionary with estimated token counts.
         """
-        prompt_tokens = self.estimate_tokens(messages) + len(self.encoding.encode(system_template))
+        encoding = self._get_encoding(model)
+        prompt_tokens = self.estimate_tokens(messages, model) + len(encoding.encode(system_template))
         response_tokens = self.estimate_response_tokens(prompt_tokens)
         total_tokens = prompt_tokens + response_tokens
 
