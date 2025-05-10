@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     
     # Anthropic settings
     ANTHROPIC_API_KEY: Optional[str] = os.getenv("ANTHROPIC_API_KEY")
+
+    # Google settings
+    GOOGLE_API_KEY: Optional[str] = os.getenv("GOOGLE_API_KEY")
     
     # Hugging Face settings
     HUGGINGFACE_API_KEY: Optional[str] = os.getenv("HUGGINGFACE_API_KEY")
