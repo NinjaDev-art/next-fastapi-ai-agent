@@ -32,8 +32,6 @@ class NoPointsAvailableException(Exception):
 
 class ChatService:
     def __init__(self):
-        self.openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
-        self.anthropic_client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
         self.embeddings = HuggingFaceEmbeddings(
             model_name=settings.EMBEDDING_MODEL,
             model_kwargs={"device": "cpu"},
