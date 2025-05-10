@@ -12,7 +12,8 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_xai import ChatXAI
 from langchain_ollama import ChatOllama
 from langchain_mistralai import ChatMistralAI
-from langchain_community.embeddings import HuggingFaceEmbeddings
+# from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
@@ -32,10 +33,8 @@ class NoPointsAvailableException(Exception):
 
 class ChatService:
     def __init__(self):
-        self.embeddings = HuggingFaceEmbeddings(
+        self.embeddings = OpenAIEmbeddings(
             model_name=settings.EMBEDDING_MODEL,
-            model_kwargs={"device": "cpu"},
-            encode_kwargs={"normalize_embeddings": True}
         )
         self.vector_stores = {}
         self.encoding = None  # Will be set based on the model being used
