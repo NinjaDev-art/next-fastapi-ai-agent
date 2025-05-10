@@ -34,7 +34,7 @@ class NoPointsAvailableException(Exception):
 class ChatService:
     def __init__(self):
         self.embeddings = OpenAIEmbeddings(
-            model_name=settings.EMBEDDING_MODEL,
+            model=settings.EMBEDDING_MODEL,
         )
         self.vector_stores = {}
         self.encoding = None  # Will be set based on the model being used
@@ -288,7 +288,7 @@ class ChatService:
             raise HTTPException(status_code=429, detail=str(e))
         except Exception as e:
             logger.error(f"Error in generate_stream_response: {str(e)}")
-            yield f"Error: {str(e)}"
+            raise HTTPException(status_code=500, detail=str(e))
 
     def _get_vector_store(self, files: List[str]) -> Chroma:
         # Implementation of vector store creation
