@@ -15,9 +15,11 @@ class UserPoint:
         if not self.user_doc:
             return False
             
-        current_plan = self.user_doc.get("currentplan", "free")
+        current_plan = self.user_doc.get("currentplan", "680f11c0d44970f933ae5e54")
         plan_end_date = self.user_doc.get("planEndDate", None)
-        if current_plan != "free" and plan_end_date < datetime.now():
+        
+        # Check if plan has expired only if plan_end_date is not None
+        if current_plan != "680f11c0d44970f933ae5e54" and plan_end_date is not None and plan_end_date <= datetime.now():
             return False
         
         usage_points = self.user_doc.get("pointsUsed", 0)
