@@ -161,7 +161,7 @@ class ChatService:
                 
                 # Estimate tokens before making the API call
                 estimated_tokens = self.estimate_total_tokens(messages, system_template, model)
-                estimated_points = self.get_points(estimated_tokens["prompt_tokens"], 0, ai_config)
+                estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
                 logger.info(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
                 
                 check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points)
@@ -230,7 +230,7 @@ class ChatService:
                 #system_template = system_prompt or db.get_system_prompt()
                 system_template = ""
                 estimated_tokens = self.estimate_total_tokens(messages, system_template, model)
-                estimated_points = self.get_points(estimated_tokens["prompt_tokens"], 0, ai_config)
+                estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
                 logger.info(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
                 
                 check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points)
