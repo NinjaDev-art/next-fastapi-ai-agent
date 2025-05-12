@@ -40,7 +40,7 @@ class ChatService:
         self.encoding = None  # Will be set based on the model being used
 
     def get_chat_messages(self, chat_history: List[IRouterChatLog], provider: str = "openai") -> List[dict]:
-        system_prompt = db.get_system_prompt()
+        system_prompt = ""
         messages = []
         
         # For Anthropic, we don't include system message in the messages array
@@ -156,7 +156,8 @@ class ChatService:
                 messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
                 messages.append({"role": "user", "content": query})
                 
-                system_template = (system_prompt or db.get_system_prompt()) + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
+                # system_template = (system_prompt or db.get_system_prompt()) + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
+                system_template = "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
                 
                 # Estimate tokens before making the API call
                 estimated_tokens = self.estimate_total_tokens(messages, system_template, model)
@@ -226,7 +227,8 @@ class ChatService:
                 messages.append({"role": "user", "content": query})
                 
                 # Estimate tokens before making the API call
-                system_template = system_prompt or db.get_system_prompt()
+                #system_template = system_prompt or db.get_system_prompt()
+                system_template = ""
                 estimated_tokens = self.estimate_total_tokens(messages, system_template, model)
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], 0, ai_config)
                 logger.info(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
