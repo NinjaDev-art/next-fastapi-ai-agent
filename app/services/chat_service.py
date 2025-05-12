@@ -165,7 +165,18 @@ class ChatService:
                 
                 check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points)
                 if not check_user_available_to_chat:
-                    raise NoPointsAvailableException("User has no available points")
+                    error_response = {
+                        "error": True,
+                        "status": 429,
+                        "message": "Insufficient points available",
+                        "details": {
+                            "estimated_points": estimated_points,
+                            "available_points": user_point.user_doc.get("availablePoints", 0) if user_point.user_doc else 0,
+                            "points_used": user_point.user_doc.get("pointsUsed", 0) if user_point.user_doc else 0
+                        }
+                    }
+                    yield f"\n\n[ERROR]{error_response}"
+                    return
                 
                 llm = self._get_llm(ai_config)
                 
@@ -222,7 +233,18 @@ class ChatService:
                 
                 check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points)
                 if not check_user_available_to_chat:
-                    raise NoPointsAvailableException("User has no available points")
+                    error_response = {
+                        "error": True,
+                        "status": 429,
+                        "message": "Insufficient points available",
+                        "details": {
+                            "estimated_points": estimated_points,
+                            "available_points": user_point.user_doc.get("availablePoints", 0) if user_point.user_doc else 0,
+                            "points_used": user_point.user_doc.get("pointsUsed", 0) if user_point.user_doc else 0
+                        }
+                    }
+                    yield f"\n\n[ERROR]{error_response}"
+                    return
                 
                 llm = self._get_llm(ai_config)
                 
@@ -283,21 +305,15 @@ class ChatService:
                 }
             })
             await user_point.save_user_points(points)
-        except NoPointsAvailableException as e:
-            logger.error(f"Error in generate_stream_response: {str(e)}")
-            raise HTTPException(
-                status_code=429,
-                detail={
-                    "message": "Insufficient points available",
-                    "error": str(e),
-                    "estimated_points": estimated_points,
-                    "available_points": user_point.user_doc.get("availablePoints", 0) if user_point.user_doc else 0,
-                    "points_used": user_point.user_doc.get("pointsUsed", 0) if user_point.user_doc else 0
-                }
-            )
         except Exception as e:
             logger.error(f"Error in generate_stream_response: {str(e)}")
-            raise HTTPException(status_code=500, detail=str(e))
+            error_response = {
+                "error": True,
+                "status": 500,
+                "message": "An error occurred while processing your request",
+                "details": str(e)
+            }
+            yield f"\n\n[ERROR]{error_response}"
 
     def _get_vector_store(self, files: List[str]) -> Chroma:
         # Implementation of vector store creation
