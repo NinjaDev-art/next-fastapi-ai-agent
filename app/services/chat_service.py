@@ -285,7 +285,16 @@ class ChatService:
             await user_point.save_user_points(points)
         except NoPointsAvailableException as e:
             logger.error(f"Error in generate_stream_response: {str(e)}")
-            raise HTTPException(status_code=429, detail=str(e))
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "message": "Insufficient points available",
+                    "error": str(e),
+                    "estimated_points": estimated_points,
+                    "available_points": user_point.user_doc.get("availablePoints", 0) if user_point.user_doc else 0,
+                    "points_used": user_point.user_doc.get("pointsUsed", 0) if user_point.user_doc else 0
+                }
+            )
         except Exception as e:
             logger.error(f"Error in generate_stream_response: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
