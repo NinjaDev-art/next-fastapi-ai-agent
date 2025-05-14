@@ -20,6 +20,9 @@ class Settings(BaseSettings):
 
     # Google settings
     GOOGLE_API_KEY: Optional[str] = os.getenv("GOOGLE_API_KEY")
+
+    # Cerebras settings
+    CEREBRAS_API_KEY: Optional[str] = os.getenv("CEREBRAS_API_KEY")
     
     # Hugging Face settings
     HUGGINGFACE_API_KEY: Optional[str] = os.getenv("HUGGINGFACE_API_KEY")

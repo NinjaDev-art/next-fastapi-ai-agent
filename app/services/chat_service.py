@@ -12,6 +12,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_xai import ChatXAI
 from langchain_ollama import ChatOllama
 from langchain_mistralai import ChatMistralAI
+from langchain_cerebras import ChatCerebras
 # from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_openai import OpenAIEmbeddings
 from langchain_core.output_parsers import StrOutputParser
@@ -40,7 +41,7 @@ class ChatService:
         self.encoding = None  # Will be set based on the model being used
 
     def get_chat_messages(self, chat_history: List[IRouterChatLog], provider: str = "openai") -> List[dict]:
-        system_prompt = ""
+        system_prompt = "" if provider == "edith" else db.get_system_prompt()
         messages = []
         
         # For Anthropic, we don't include system message in the messages array
@@ -58,68 +59,78 @@ class ChatService:
     def get_points(self, inputToken: int, outputToken: int, ai_config: AiConfig) -> float:
         return (inputToken * ai_config.inputCost + outputToken * ai_config.outputCost) * ai_config.multiplier / 0.001
 
-    def _get_llm(self, ai_config: AiConfig):
+    def _get_llm(self, ai_config: AiConfig, isStream: bool = True):
         if ai_config.provider.lower() == "anthropic":
             return ChatAnthropic(
                 temperature=0.7,
-                streaming=True,
+                streaming=isStream,
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
                 anthropic_api_key=settings.ANTHROPIC_API_KEY,
-                stream_usage=True
+                stream_options={"include_usage": isStream}
             )
         elif ai_config.provider.lower() == "deepseek":
             return ChatDeepSeek(
                 temperature=0.7,
-                streaming=True,
+                streaming=isStream,
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
                 deepseek_api_key=settings.DEEPSEEK_API_KEY,
-                stream_usage=True
+                stream_options={"include_usage": isStream}
             )
         elif ai_config.provider.lower() == "google":
             return ChatGoogleGenerativeAI(
                 temperature=0.7,
-                streaming=True,
+                streaming=isStream,
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
                 google_api_key=settings.GOOGLE_API_KEY,
-                stream_usage=True
+                stream_options={"include_usage": isStream}
             )
         elif ai_config.provider.lower() == "xai":
-            return ChatXAI(   temperature=0.7,
-                streaming=True,
+            return ChatXAI(   
+                temperature=0.7,
+                streaming=isStream,
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
                 xai_api_key=settings.XAI_API_KEY,
-                stream_usage=True
+                stream_options={"include_usage": isStream}
             )
         elif ai_config.provider.lower() == "ollama":
             return ChatOllama(
                 temperature=0.7,
-                streaming=True,
+                streaming=isStream,
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
                 base_url=settings.OLLAMA_BASE_URL,
-                stream_usage=True
+                stream_options={"include_usage": isStream}
             )
         elif ai_config.provider.lower() == "mistralai":
             return ChatMistralAI(
                 temperature=0.7,
-                streaming=True,
+                streaming=isStream,
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
                 mistral_api_key=settings.MISTRAL_API_KEY,
-                stream_usage=True
+                stream_options={"include_usage": isStream}
+            )
+        elif ai_config.provider.lower() == "cerebras" or ai_config.provider.lower() == "edith":
+            return ChatCerebras(
+                temperature=0.7,
+                streaming=isStream,
+                callbacks=[StreamingStdOutCallbackHandler()],
+                model="llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model,
+                cerebras_api_key=settings.CEREBRAS_API_KEY,
+                stream_options={"include_usage": isStream}
             )
         else:  # Default to OpenAI
             return ChatOpenAI(
                 temperature=0.7,
-                streaming=True,
+                streaming=isStream,
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
                 openai_api_key=settings.OPENAI_API_KEY,
-                stream_usage=True
+                stream_options={"include_usage": isStream}
             )
 
     async def generate_stream_response(
@@ -130,11 +141,13 @@ class ChatService:
         model: str,
         email: str,
         sessionId: str,
-        reGenerate: bool
+        reGenerate: bool,
+        chatType: int,
+        points: float
     ) -> AsyncGenerator[str, None]:
         logger.info(f"Generating response for query: {query}")
         full_response = ""
-        points = 0
+        points = points if points > 0 else 0
         token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         outputTime = datetime.now()
 
@@ -157,7 +170,7 @@ class ChatService:
                 messages.append({"role": "user", "content": query})
                 
                 # system_template = (system_prompt or db.get_system_prompt()) + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
-                system_template = "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
+                system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
                 
                 # Estimate tokens before making the API call
                 estimated_tokens = self.estimate_total_tokens(messages, system_template, model)
@@ -296,14 +309,241 @@ class ChatService:
                 "title": full_response.split("\n\n")[0],
                 "chat": {
                     "prompt": query,
-                    "model": model,
                     "response": full_response,
                     "timestamp": datetime.now(),
                     "inputToken": token_usage["prompt_tokens"],
                     "outputToken": token_usage["completion_tokens"],
                     "outputTime": outputTime,
+                    "chatType": chatType,
                     "fileUrls": files,
+                    "model": model,
                     "points": points
+                }
+            })
+            await db.save_usage_log({
+                "date": datetime.now(),
+                "userId": user_point.user_doc.get("_id", None),
+                "modelId": model,
+                "planId": user_point.user_doc.get("currentplan", "680f11c0d44970f933ae5e54"),
+                "stats": {
+                    "tokenUsage": {
+                        "input": token_usage["prompt_tokens"],
+                        "output": token_usage["completion_tokens"],
+                        "total": token_usage["total_tokens"]
+                    },
+                    "pointsUsage": points
+                }
+            })
+            await user_point.save_user_points(points)
+        except Exception as e:
+            logger.error(f"Error in generate_stream_response: {str(e)}")
+            error_response = {
+                "error": True,
+                "status": 500,
+                "message": "An error occurred while processing your request",
+                "details": str(e)
+            }
+            yield f"\n\n[ERROR]{error_response}"
+
+    async def generate_text_response(
+        self,
+        query: str,
+        files: List[str],
+        chat_history: List[IRouterChatLog],
+        model: str,
+        email: str,
+        sessionId: str,
+        reGenerate: bool,
+        chatType: int,
+        points: float
+    ) -> AsyncGenerator[str, None]:
+        logger.info(f"Generating response for query: {query}")
+        full_response = ""
+        points = points if points > 0 else 0
+        token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        outputTime = datetime.now()
+
+        try:
+            # Initialize user_point with email
+            await user_point.initialize(email)
+            ai_config = db.get_ai_config(model)
+
+            print("ai_config", ai_config)
+            if not ai_config:
+                yield "Error: Invalid AI configuration"
+                return
+
+            if files:
+                logger.info("Using RAG with files")
+                vector_store = self._get_vector_store(files)
+                
+                # Get messages for token estimation
+                messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
+                messages.append({"role": "user", "content": query})
+                
+                # system_template = (system_prompt or db.get_system_prompt()) + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
+                system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
+                
+                # Estimate tokens before making the API call
+                estimated_tokens = self.estimate_total_tokens(messages, system_template, model)
+                estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
+                logger.info(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
+                
+                check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points)
+                if not check_user_available_to_chat:
+                    error_response = {
+                        "error": True,
+                        "status": 429,
+                        "message": "Insufficient points available",
+                        "details": {
+                            "estimated_points": estimated_points,
+                            "available_points": user_point.user_doc.get("availablePoints", 0) if user_point.user_doc else 0,
+                            "points_used": user_point.user_doc.get("pointsUsed", 0) if user_point.user_doc else 0
+                        }
+                    }
+                    yield f"\n\n[ERROR]{error_response}"
+                    return
+                
+                llm = self._get_llm(ai_config, False)
+                
+                prompt = ChatPromptTemplate.from_messages([
+                    SystemMessagePromptTemplate.from_template(system_template),
+                    HumanMessagePromptTemplate.from_template("{question}")
+                ])
+                
+                rag_chain = (
+                    {
+                        "context": vector_store.as_retriever(),
+                        "question": RunnablePassthrough(),
+                        "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
+                    }
+                    | prompt
+                    | llm
+                    | StrOutputParser()
+                )
+                
+                async for event in rag_chain.astream_events(query):
+                    if event["event"] == "on_chat_model_end":
+                        usage = event["data"]["output"].usage_metadata
+                        if usage:
+                            token_usage = {
+                                "prompt_tokens": usage.get("input_tokens", 0),
+                                "completion_tokens": usage.get("output_tokens", 0),
+                                "total_tokens": usage.get("total_tokens", 0)
+                            }
+                            points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
+                            logger.info(f"Token usage for RAG: {token_usage}, Cost: ${points:.6f}")
+                    elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
+                        chunk = event["data"]["chunk"]
+                        if isinstance(chunk, str):
+                            full_response += chunk
+                            yield chunk
+                        else:
+                            full_response += str(chunk)
+                            yield str(chunk)
+                        await asyncio.sleep(0.01)
+                
+                points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
+                yield f"\n\n[POINTS]{points}"
+                
+            else:
+                logger.info(f"Using direct {ai_config.provider} completion")
+                messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
+                messages.append({"role": "user", "content": query})
+                
+                # Estimate tokens before making the API call
+                #system_template = system_prompt or db.get_system_prompt()
+                system_template = ""
+                estimated_tokens = self.estimate_total_tokens(messages, system_template, model)
+                estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
+                logger.info(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
+                
+                check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points)
+                if not check_user_available_to_chat:
+                    error_response = {
+                        "error": True,
+                        "status": 429,
+                        "message": "Insufficient points available",
+                        "details": {
+                            "estimated_points": estimated_points,
+                            "available_points": user_point.user_doc.get("availablePoints", 0) if user_point.user_doc else 0,
+                            "points_used": user_point.user_doc.get("pointsUsed", 0) if user_point.user_doc else 0
+                        }
+                    }
+                    yield f"\n\n[ERROR]{error_response}"
+                    return
+                
+                llm = self._get_llm(ai_config)
+                
+                prompt = ChatPromptTemplate.from_messages([
+                    SystemMessagePromptTemplate.from_template(system_template),
+                    HumanMessagePromptTemplate.from_template("{question}")
+                ])
+                
+                chain = (
+                    {"question": RunnablePassthrough()}
+                    | prompt
+                    | llm
+                    | StrOutputParser()
+                )
+                
+                async for event in chain.astream_events(query):
+                    if event["event"] == "on_chat_model_end":
+                        usage = event["data"]["output"].usage_metadata
+                        if usage:
+                            token_usage = {
+                                "prompt_tokens": usage.get("input_tokens", 0),
+                                "completion_tokens": usage.get("output_tokens", 0),
+                                "total_tokens": usage.get("total_tokens", 0)
+                            }
+                            points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
+                            logger.info(f"Token usage for completion: {token_usage}, Cost: ${points:.6f}")
+                    elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
+                        chunk = event["data"]["chunk"]
+                        if isinstance(chunk, str):
+                            full_response += chunk
+                            yield chunk
+                        else:
+                            full_response += str(chunk)
+                            yield str(chunk)
+                        await asyncio.sleep(0.01)
+                
+                points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
+                yield f"\n\n[POINTS]{points}"
+            
+            outputTime = (datetime.now() - outputTime).total_seconds()
+            yield f"\n\n[OUTPUT_TIME]{outputTime}"
+            
+            await db.save_chat_log({
+                "email": email,
+                "sessionId": sessionId,
+                "reGenerate": reGenerate,
+                "title": full_response.split("\n\n")[0],
+                "chat": {
+                    "prompt": query,
+                    "response": full_response,
+                    "timestamp": datetime.now(),
+                    "inputToken": token_usage["prompt_tokens"],
+                    "outputToken": token_usage["completion_tokens"],
+                    "outputTime": outputTime,
+                    "chatType": chatType,
+                    "fileUrls": files,
+                    "model": model,
+                    "points": points
+                }
+            })
+            await db.save_usage_log({
+                "date": datetime.now(),
+                "userId": user_point.user_doc.get("_id", None),
+                "modelId": model,
+                "planId": user_point.user_doc.get("currentplan", "680f11c0d44970f933ae5e54"),
+                "stats": {
+                    "tokenUsage": {
+                        "input": token_usage["prompt_tokens"],
+                        "output": token_usage["completion_tokens"],
+                        "total": token_usage["total_tokens"]
+                    },
+                    "pointsUsage": points
                 }
             })
             await user_point.save_user_points(points)

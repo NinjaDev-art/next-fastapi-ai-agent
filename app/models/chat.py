@@ -8,12 +8,14 @@ class IRouterChatLog(BaseModel):
 
 class ChatRequest(BaseModel):
     prompt: str
-    model: str = "gpt-3.5-turbo"
-    reGenerate: bool = False
-    files: List[str] = []
-    chatHistory: List[IRouterChatLog] = []
     sessionId: str = ""
+    chatHistory: List[IRouterChatLog] = []
+    files: List[str] = []
     email: str = ""
+    reGenerate: bool = False
+    model: str = "gpt-3.5-turbo"
+    chatType: int = 0
+    points: float = 0
 
 class AiConfig(BaseModel):
     name: str
