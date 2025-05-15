@@ -682,7 +682,7 @@ class ChatService:
 
             await db.save_usage_log({
                 "date": datetime.now(),
-                "userId": user_point.user_doc.get("_id", None),
+                "userId": user_point.user_doc.get("userId", None),
                 "modelId": model,
                 "planId": user_point.user_doc.get("currentplan", "680f11c0d44970f933ae5e54"),
                 "stats": {

@@ -156,7 +156,8 @@ class Database:
                             "pointsUsed": pointsUsed,
                             "planStartDate": planStartDate,
                             "planEndDate": planEndDate,
-                            "currentplan": current_plan
+                            "currentplan": current_plan,
+                            "userId": user_doc.get("_id", None)
                         }
                     else:
                         logger.warning(f"No plan found for email: {email}")
@@ -169,7 +170,8 @@ class Database:
                             "pointsUsed": pointsUsed,
                             "planStartDate": planStartDate,
                             "planEndDate": planEndDate,
-                            "currentplan": current_plan
+                            "currentplan": current_plan,
+                            "userId": user_doc.get("_id", None)
                         }
                     else:
                         logger.warning(f"No plan found for email: {email}")
