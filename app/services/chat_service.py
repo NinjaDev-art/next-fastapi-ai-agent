@@ -762,7 +762,7 @@ class ChatService:
                 return f"\n\n[ERROR]{error_response}"
 
             # Generate audio using GPT-4o-mini-tts
-            response = self.openai.audio.speech.with_streaming_response.create(
+            response = self.openai.audio.speech.create(
                 model="gpt-4o-mini-tts",
                 voice="alloy",  # You can also use "echo", "fable", "onyx", "nova", "shimmer"
                 input=enhanced_query
@@ -774,11 +774,9 @@ class ChatService:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 temp_audio_path = os.path.join(temp_dir, f"audio_{timestamp}.mp3")
                 
-                # Write the streaming response to file
+                # Write the response content to file
                 with open(temp_audio_path, 'wb') as f:
-                    for chunk in response.iter_bytes():
-                        if chunk:
-                            f.write(chunk)
+                    f.write(response.content)
 
                 # Initialize S3 client for DigitalOcean Spaces
                 s3_client = boto3.client('s3',
