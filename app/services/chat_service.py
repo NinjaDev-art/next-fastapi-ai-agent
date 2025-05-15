@@ -94,7 +94,7 @@ class ChatService:
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
                 xai_api_key=settings.XAI_API_KEY,
-                stream_options={"include_usage": isStream}
+                stream_usage=isStream
             )
         elif ai_config.provider.lower() == "ollama":
             return ChatOllama(
@@ -103,7 +103,7 @@ class ChatService:
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
                 base_url=settings.OLLAMA_BASE_URL,
-                stream_options={"include_usage": isStream}
+                stream_usage=isStream
             )
         elif ai_config.provider.lower() == "mistralai":
             return ChatMistralAI(
@@ -112,7 +112,7 @@ class ChatService:
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
                 mistral_api_key=settings.MISTRAL_API_KEY,
-                stream_options={"include_usage": isStream}
+                stream_usage=isStream
             )
         elif ai_config.provider.lower() == "cerebras" or ai_config.provider.lower() == "edith":
             return ChatCerebras(
@@ -121,7 +121,7 @@ class ChatService:
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model="llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model,
                 cerebras_api_key=settings.CEREBRAS_API_KEY,
-                stream_options={"include_usage": isStream}
+                stream_usage=isStream
             )
         else:  # Default to OpenAI
             return ChatOpenAI(
@@ -130,7 +130,7 @@ class ChatService:
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
                 openai_api_key=settings.OPENAI_API_KEY,
-                stream_options={"include_usage": isStream}
+                stream_usage=isStream
             )
 
     async def generate_stream_response(
@@ -161,7 +161,7 @@ class ChatService:
                 return
 
             if files:
-                logger.info("Using RAG with files")
+                print("Using RAG with files")
                 vector_store = self._get_vector_store(files)
                 
                 # Get messages for token estimation
@@ -174,7 +174,7 @@ class ChatService:
                 # Estimate tokens before making the API call
                 estimated_tokens = self.estimate_total_tokens(messages, system_template, model)
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
-                logger.info(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
+                print(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
                 
                 check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points)
                 if not check_user_available_to_chat:
@@ -237,7 +237,7 @@ class ChatService:
                 yield f"\n\n[POINTS]{points}"
                 
             else:
-                logger.info(f"Using direct {ai_config.provider} completion")
+                print(f"Using direct {ai_config.provider} completion")
                 messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
                 messages.append({"role": "user", "content": query})
                 
@@ -246,7 +246,7 @@ class ChatService:
                 system_template = system_prompt
                 estimated_tokens = self.estimate_total_tokens(messages, system_template, model)
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
-                logger.info(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
+                print(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
                 
                 check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points)
                 if not check_user_available_to_chat:
