@@ -172,7 +172,7 @@ class ChatService:
                 system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
                 
                 # Estimate tokens before making the API call
-                estimated_tokens = self.estimate_total_tokens(messages, system_template, model)
+                estimated_tokens = self.estimate_total_tokens(messages, system_template, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model)
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
                 print(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
                 
@@ -238,13 +238,14 @@ class ChatService:
                 
             else:
                 print(f"Using direct {ai_config.provider} completion")
+                llm = self._get_llm(ai_config)
                 messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
                 messages.append({"role": "user", "content": query})
                 
                 # Estimate tokens before making the API call
                 #system_template = system_prompt or db.get_system_prompt()
                 system_template = system_prompt
-                estimated_tokens = self.estimate_total_tokens(messages, system_template, model)
+                estimated_tokens = self.estimate_total_tokens(messages, system_template, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model)
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
                 print(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
                 
@@ -263,7 +264,6 @@ class ChatService:
                     yield f"\n\n[ERROR]{error_response}"
                     return
                 
-                llm = self._get_llm(ai_config)
                 
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
@@ -377,7 +377,8 @@ class ChatService:
                 return
 
             if files:
-                logger.info("Using RAG with files")
+                print("Using RAG with files")
+                llm = self._get_llm(ai_config, False)
                 vector_store = self._get_vector_store(files)
                 
                 # Get messages for token estimation
@@ -387,9 +388,9 @@ class ChatService:
                 system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
                 
                 # Estimate tokens before making the API call
-                estimated_tokens = self.estimate_total_tokens(messages, system_template, model)
+                estimated_tokens = self.estimate_total_tokens(messages, system_template, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model)
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
-                logger.info(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
+                print(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
                 
                 check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points)
                 if not check_user_available_to_chat:
@@ -406,7 +407,6 @@ class ChatService:
                     yield f"\n\n[ERROR]{error_response}"
                     return
                 
-                llm = self._get_llm(ai_config, False)
                 
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
@@ -432,14 +432,15 @@ class ChatService:
                 yield f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
                 
             else:
-                logger.info(f"Using direct {ai_config.provider} completion")
+                llm = self._get_llm(ai_config)
+                print(f"Using direct {ai_config.provider} completion")
                 messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
                 messages.append({"role": "user", "content": query})
                 
                 system_template = system_prompt
-                estimated_tokens = self.estimate_total_tokens(messages, system_template, model)
+                estimated_tokens = self.estimate_total_tokens(messages, system_template, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model)
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
-                logger.info(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
+                print(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
                 
                 check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points)
                 if not check_user_available_to_chat:
@@ -456,7 +457,6 @@ class ChatService:
                     yield f"\n\n[ERROR]{error_response}"
                     return
                 
-                llm = self._get_llm(ai_config)
                 
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
