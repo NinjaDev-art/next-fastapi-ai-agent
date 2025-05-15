@@ -19,6 +19,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
+from langchain_community.callbacks import get_openai_callback
 from fastapi import HTTPException
 
 from ..config.settings import settings
@@ -433,9 +434,9 @@ class ChatService:
                     | StrOutputParser()
                 )
 
-                ai_response = rag_chain.invoke(query)
-                full_response = ai_response.content
-                token_usage = ai_response.response_metadata.token_usage if hasattr(ai_response, 'response_metadata') else {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+                with get_openai_callback() as cb:
+                    full_response = rag_chain.invoke(query)
+                    token_usage = cb
                 outputTime = (datetime.now() - outputTime).total_seconds()
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
                 response = f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
@@ -478,12 +479,13 @@ class ChatService:
                     | StrOutputParser()
                 )
 
-                ai_response = chain.invoke(query)
-                print(f"token usage ${ai_response}")
-                full_response = ai_response.content
-                token_usage = ai_response.response_metadata.token_usage if hasattr(ai_response, 'response_metadata') else {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+                with get_openai_callback() as cb:
+                    full_response = chain.invoke(query)
+                    token_usage = cb
+                    print(cb)
                 outputTime = (datetime.now() - outputTime).total_seconds()
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
+                print(f"token usage ${token_usage}")
                 response = f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
             
             await db.save_chat_log({
