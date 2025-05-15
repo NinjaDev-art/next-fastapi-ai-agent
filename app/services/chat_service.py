@@ -433,7 +433,7 @@ class ChatService:
                     | StrOutputParser()
                 )
 
-                ai_response = await rag_chain.invoke(query)
+                ai_response = rag_chain.invoke(query)
                 full_response = ai_response.content
                 token_usage = ai_response.response_metadata.token_usage if hasattr(ai_response, 'response_metadata') else {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
                 outputTime = (datetime.now() - outputTime).total_seconds()
@@ -478,7 +478,7 @@ class ChatService:
                     | StrOutputParser()
                 )
 
-                ai_response = await chain.invoke(query)
+                ai_response = chain.invoke(query)
                 print(f"token usage ${ai_response}")
                 full_response = ai_response.content
                 token_usage = ai_response.response_metadata.token_usage if hasattr(ai_response, 'response_metadata') else {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
