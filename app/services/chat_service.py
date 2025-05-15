@@ -598,7 +598,25 @@ class ChatService:
 
             # Get the image URL
             image_url = response.data[0].url
-            full_response = image_url
+            
+            # Convert image URL to base64
+            try:
+                import requests
+                import base64
+                from io import BytesIO
+                
+                # Download the image
+                image_response = requests.get(image_url)
+                image_response.raise_for_status()
+                
+                # Convert to base64
+                image_data = base64.b64encode(image_response.content).decode('utf-8')
+                image_type = image_response.headers.get('content-type', 'image/jpeg')
+                full_response = f"data:{image_type};base64,{image_data}"
+            except Exception as e:
+                logger.error(f"Error converting image to base64: {str(e)}")
+                full_response = image_url  # Fallback to original URL if conversion fails
+            
             if response.usage:
                 token_usage = {
                     "prompt_tokens": response.usage.input_tokens,
