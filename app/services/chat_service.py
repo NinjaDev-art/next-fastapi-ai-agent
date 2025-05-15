@@ -143,11 +143,10 @@ class ChatService:
         sessionId: str,
         reGenerate: bool,
         chatType: int,
-        points: float
     ) -> AsyncGenerator[str, None]:
         logger.info(f"Generating response for query: {query}")
         full_response = ""
-        points = points if points > 0 else 0
+        points = 0
         token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         outputTime = datetime.now()
 
@@ -241,7 +240,7 @@ class ChatService:
                 
                 # Estimate tokens before making the API call
                 #system_template = system_prompt or db.get_system_prompt()
-                system_template = ""
+                system_template = system_prompt
                 estimated_tokens = self.estimate_total_tokens(messages, system_template, model)
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
                 logger.info(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
@@ -355,11 +354,9 @@ class ChatService:
         sessionId: str,
         reGenerate: bool,
         chatType: int,
-        points: float
-    ) -> AsyncGenerator[str, None]:
+    ):
         logger.info(f"Generating response for query: {query}")
-        full_response = ""
-        points = points if points > 0 else 0
+        points = 0
         token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         outputTime = datetime.now()
 
@@ -367,6 +364,7 @@ class ChatService:
             # Initialize user_point with email
             await user_point.initialize(email)
             ai_config = db.get_ai_config(model)
+            response = ""
 
             print("ai_config", ai_config)
             if not ai_config:
@@ -421,30 +419,13 @@ class ChatService:
                     | llm
                     | StrOutputParser()
                 )
-                
-                async for event in rag_chain.astream_events(query):
-                    if event["event"] == "on_chat_model_end":
-                        usage = event["data"]["output"].usage_metadata
-                        if usage:
-                            token_usage = {
-                                "prompt_tokens": usage.get("input_tokens", 0),
-                                "completion_tokens": usage.get("output_tokens", 0),
-                                "total_tokens": usage.get("total_tokens", 0)
-                            }
-                            points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
-                            logger.info(f"Token usage for RAG: {token_usage}, Cost: ${points:.6f}")
-                    elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
-                        chunk = event["data"]["chunk"]
-                        if isinstance(chunk, str):
-                            full_response += chunk
-                            yield chunk
-                        else:
-                            full_response += str(chunk)
-                            yield str(chunk)
-                        await asyncio.sleep(0.01)
-                
+
+                ai_response = rag_chain.invoke(query)
+                full_response = ai_response.content
+                token_usage = ai_response.response_metadata.token_usage
+                outputTime = (datetime.now() - outputTime).total_seconds()
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
-                yield f"\n\n[POINTS]{points}"
+                response = f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
                 
             else:
                 logger.info(f"Using direct {ai_config.provider} completion")
@@ -453,7 +434,7 @@ class ChatService:
                 
                 # Estimate tokens before making the API call
                 #system_template = system_prompt or db.get_system_prompt()
-                system_template = ""
+                system_template = system_prompt
                 estimated_tokens = self.estimate_total_tokens(messages, system_template, model)
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
                 logger.info(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
@@ -486,33 +467,13 @@ class ChatService:
                     | llm
                     | StrOutputParser()
                 )
-                
-                async for event in chain.astream_events(query):
-                    if event["event"] == "on_chat_model_end":
-                        usage = event["data"]["output"].usage_metadata
-                        if usage:
-                            token_usage = {
-                                "prompt_tokens": usage.get("input_tokens", 0),
-                                "completion_tokens": usage.get("output_tokens", 0),
-                                "total_tokens": usage.get("total_tokens", 0)
-                            }
-                            points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
-                            logger.info(f"Token usage for completion: {token_usage}, Cost: ${points:.6f}")
-                    elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
-                        chunk = event["data"]["chunk"]
-                        if isinstance(chunk, str):
-                            full_response += chunk
-                            yield chunk
-                        else:
-                            full_response += str(chunk)
-                            yield str(chunk)
-                        await asyncio.sleep(0.01)
-                
+
+                ai_response = chain.invoke(query)
+                full_response = ai_response.content
+                token_usage = ai_response.response_metadata.token_usage
+                outputTime = (datetime.now() - outputTime).total_seconds()
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
-                yield f"\n\n[POINTS]{points}"
-            
-            outputTime = (datetime.now() - outputTime).total_seconds()
-            yield f"\n\n[OUTPUT_TIME]{outputTime}"
+                response = f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
             
             await db.save_chat_log({
                 "email": email,
@@ -547,6 +508,7 @@ class ChatService:
                 }
             })
             await user_point.save_user_points(points)
+            return response
         except Exception as e:
             logger.error(f"Error in generate_stream_response: {str(e)}")
             error_response = {
@@ -555,7 +517,7 @@ class ChatService:
                 "message": "An error occurred while processing your request",
                 "details": str(e)
             }
-            yield f"\n\n[ERROR]{error_response}"
+            return f"\n\n[ERROR]{error_response}"
 
     def _get_vector_store(self, files: List[str]) -> Chroma:
         # Implementation of vector store creation

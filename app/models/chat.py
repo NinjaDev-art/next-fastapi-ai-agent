@@ -15,7 +15,6 @@ class ChatRequest(BaseModel):
     reGenerate: bool = False
     model: str = "gpt-3.5-turbo"
     chatType: int = 0
-    points: float = 0
 
 class AiConfig(BaseModel):
     name: str

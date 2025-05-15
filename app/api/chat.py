@@ -18,7 +18,6 @@ async def chat_stream(request: ChatRequest):
                 request.sessionId,
                 request.reGenerate,
                 request.chatType,
-                request.points
             ),
             media_type="text/event-stream"
         )
@@ -30,7 +29,7 @@ async def chat_stream(request: ChatRequest):
 @router.post("/chat/generateText")
 async def chat_generate_text(request: ChatRequest):
     try:
-        return chat_service.generate_text_response(
+        return await chat_service.generate_text_response(
             request.prompt,
             request.files,
             request.chatHistory,
@@ -39,7 +38,6 @@ async def chat_generate_text(request: ChatRequest):
             request.sessionId,
             request.reGenerate,
             request.chatType,
-            request.points
         )
     except HTTPException as e:
         raise e
