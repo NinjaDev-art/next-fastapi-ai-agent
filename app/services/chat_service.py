@@ -360,11 +360,12 @@ class ChatService:
         sessionId: str,
         reGenerate: bool,
         chatType: int,
-    ):
+    ) -> str:
         logger.info(f"Generating response for query: {query}")
         points = 0
         token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         outputTime = datetime.now()
+        full_response = ""
 
         try:
             # Initialize user_point with email
@@ -373,8 +374,7 @@ class ChatService:
 
             print("ai_config", ai_config)
             if not ai_config:
-                yield "Error: Invalid AI configuration"
-                return
+                return "Error: Invalid AI configuration"
 
             if files:
                 print("Using RAG with files")
@@ -404,9 +404,7 @@ class ChatService:
                             "points_used": user_point.user_doc.get("pointsUsed", 0) if user_point.user_doc else 0
                         }
                     }
-                    yield f"\n\n[ERROR]{error_response}"
-                    return
-                
+                    return f"\n\n[ERROR]{error_response}"
                 
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
@@ -424,15 +422,15 @@ class ChatService:
                     | StrOutputParser()
                 )
 
-                ai_response = rag_chain.invoke(query)
-                full_response = ai_response.content
-                token_usage = ai_response.response_metadata.token_usage
+                ai_response = await rag_chain.ainvoke(query)
+                full_response = ai_response
+                token_usage = ai_response.response_metadata.token_usage if hasattr(ai_response, 'response_metadata') else {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
                 outputTime = (datetime.now() - outputTime).total_seconds()
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
-                yield f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
+                response = f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
                 
             else:
-                llm = self._get_llm(ai_config)
+                llm = self._get_llm(ai_config, False)
                 print(f"Using direct {ai_config.provider} completion")
                 messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
                 messages.append({"role": "user", "content": query})
@@ -454,9 +452,7 @@ class ChatService:
                             "points_used": user_point.user_doc.get("pointsUsed", 0) if user_point.user_doc else 0
                         }
                     }
-                    yield f"\n\n[ERROR]{error_response}"
-                    return
-                
+                    return f"\n\n[ERROR]{error_response}"
                 
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
@@ -470,18 +466,18 @@ class ChatService:
                     | StrOutputParser()
                 )
 
-                ai_response = chain.invoke(query)
-                full_response = ai_response.content
-                token_usage = ai_response.response_metadata.token_usage
+                ai_response = await chain.ainvoke(query)
+                full_response = ai_response
+                token_usage = ai_response.response_metadata.token_usage if hasattr(ai_response, 'response_metadata') else {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
                 outputTime = (datetime.now() - outputTime).total_seconds()
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
-                yield f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
+                response = f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
             
             await db.save_chat_log({
                 "email": email,
                 "sessionId": sessionId,
                 "reGenerate": reGenerate,
-                "title": full_response.split("\n\n")[0],
+                "title": full_response.split("\n\n")[0] if full_response else "",
                 "chat": {
                     "prompt": query,
                     "response": full_response,
@@ -510,15 +506,16 @@ class ChatService:
                 }
             })
             await user_point.save_user_points(points)
+            return response
         except Exception as e:
-            logger.error(f"Error in generate_stream_response: {str(e)}")
+            logger.error(f"Error in generate_text_response: {str(e)}")
             error_response = {
                 "error": True,
                 "status": 500,
                 "message": "An error occurred while processing your request",
                 "details": str(e)
             }
-            yield f"\n\n[ERROR]{error_response}"
+            return f"\n\n[ERROR]{error_response}"
 
     def _get_vector_store(self, files: List[str]) -> Chroma:
         # Implementation of vector store creation
