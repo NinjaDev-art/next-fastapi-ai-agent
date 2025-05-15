@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from starlette.responses import StreamingResponse
+from starlette.responses import StreamingResponse, Response as HTTPResponse
 from ..models.chat import ChatRequest
 from ..services.chat_service import chat_service
 
@@ -29,7 +29,7 @@ async def chat_stream(request: ChatRequest):
 @router.post("/chat/generateText")
 async def chat_generate_text(request: ChatRequest):
     try:
-        return await chat_service.generate_text_response(
+        response = await chat_service.generate_text_response(
             request.prompt,
             request.files,
             request.chatHistory,
@@ -38,6 +38,11 @@ async def chat_generate_text(request: ChatRequest):
             request.sessionId,
             request.reGenerate,
             request.chatType,
+        )
+        return HTTPResponse(
+            status=200,
+            message="Success",
+            data=response
         )
     except HTTPException as e:
         raise e
