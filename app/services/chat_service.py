@@ -535,6 +535,25 @@ class ChatService:
             }
             return f"\n\n[ERROR]{error_response}"
 
+    def estimate_image_tokens(self, prompt: str) -> dict:
+        """
+        Estimate token usage for DALL-E 2 image generation.
+        DALL-E 2 uses approximately 1 token per 4 characters for the prompt.
+        """
+        try:
+            # Rough estimation: 1 token per 4 characters
+            char_count = len(prompt)
+            estimated_tokens = char_count // 4
+            
+            return {
+                "prompt_tokens": estimated_tokens,
+                "completion_tokens": 0,  # No completion tokens for image generation
+                "total_tokens": estimated_tokens
+            }
+        except Exception as e:
+            logger.error(f"Error estimating image tokens: {str(e)}")
+            return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
     async def generate_image_response(
         self,
         query: str,
@@ -578,7 +597,7 @@ class ChatService:
                 enhanced_query = query
 
             # Estimate tokens for the prompt
-            estimated_tokens = self.estimate_total_tokens(messages, enhanced_query, "gpt-4")  # Using gpt-4 for estimation
+            estimated_tokens = self.estimate_image_tokens(enhanced_query)  # Use image-specific token estimation
             estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
             print(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
 
@@ -628,17 +647,16 @@ class ChatService:
 
             print(f"full_response: {response}")
             
-            if response.usage:
+            if response.usage != None:
                 token_usage = {
                     "prompt_tokens": response.usage.input_tokens,
                     "completion_tokens": response.usage.output_tokens,
                     "total_tokens": response.usage.total_tokens
                 }
+            else:
+                token_usage = estimated_tokens
 
-            # Calculate points for image generation
-            # DALL-E 2 costs are different from text generation
             points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
-
             outputTime = (datetime.now() - outputTime).total_seconds()
             response = f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
 
