@@ -590,9 +590,13 @@ class ChatService:
             Returns a dictionary with estimated token counts.
             """
             encoding = self._get_encoding(model)
+            print("encoding", encoding)
             prompt_tokens = self.estimate_tokens(messages, model) + len(encoding.encode(system_template))
+            print("prompt_tokens", prompt_tokens)
             response_tokens = self.estimate_response_tokens(prompt_tokens)
+            print("response_tokens", response_tokens)
             total_tokens = prompt_tokens + response_tokens
+            print("total_tokens", total_tokens)
 
             return {
                 "prompt_tokens": prompt_tokens,
