@@ -19,7 +19,6 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
-from langchain_community.callbacks import get_openai_callback
 from fastapi import HTTPException
 
 from ..config.settings import settings
@@ -434,9 +433,12 @@ class ChatService:
                     | StrOutputParser()
                 )
 
-                with get_openai_callback() as cb:
-                    full_response = rag_chain.invoke(query)
-                    token_usage = cb
+                ai_response = rag_chain.invoke(query)
+                full_response = ai_response.content
+                
+                # Track actual token usage
+                token_usage = self.track_actual_token_usage(messages, full_response, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model)
+                
                 outputTime = (datetime.now() - outputTime).total_seconds()
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
                 response = f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
@@ -479,13 +481,14 @@ class ChatService:
                     | StrOutputParser()
                 )
 
-                with get_openai_callback() as cb:
-                    full_response = chain.invoke(query)
-                    token_usage = cb
-                    print(cb)
+                ai_response = chain.invoke(query)
+                full_response = ai_response
+                
+                # Track actual token usage
+                token_usage = self.track_actual_token_usage(messages, full_response, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model)
+                
                 outputTime = (datetime.now() - outputTime).total_seconds()
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
-                print(f"token usage ${token_usage}")
                 response = f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
             
             await db.save_chat_log({
@@ -918,6 +921,29 @@ class ChatService:
             # Fallback to cl100k_base encoding if model is not found
             logger.warning(f"Model {model} not found in tiktoken, using cl100k_base encoding")
             return tiktoken.get_encoding("cl100k_base")
+
+    def track_actual_token_usage(self, messages: List[dict], response: str, model: str) -> dict:
+        """
+        Track actual token usage for both input and output.
+        This provides a more accurate count than relying on provider metadata.
+        """
+        try:
+            encoding = self._get_encoding(model)
+            
+            # Count input tokens
+            prompt_tokens = self.estimate_tokens(messages, model)
+            
+            # Count output tokens
+            completion_tokens = len(encoding.encode(response))
+            
+            return {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens
+            }
+        except Exception as e:
+            logger.error(f"Error tracking token usage: {str(e)}")
+            return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     def estimate_tokens(self, messages: List[dict], model: str) -> int:
         """
