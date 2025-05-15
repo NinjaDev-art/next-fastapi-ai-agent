@@ -221,13 +221,16 @@ class ChatService:
                             points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
                             logger.info(f"Token usage for RAG: {token_usage}, Cost: ${points:.6f}")
                     elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
-                        chunk = event["data"]["chunk"]
-                        if isinstance(chunk, str):
-                            full_response += chunk
-                            yield chunk
-                        else:
-                            full_response += str(chunk)
-                            yield str(chunk)
+                        try:
+                            chunk = event["data"]["chunk"]
+                            if chunk is None:
+                                continue
+                            chunk_str = str(chunk) if not isinstance(chunk, str) else chunk
+                            full_response += chunk_str
+                            yield chunk_str
+                        except Exception as e:
+                            logger.error(f"Error processing chunk: {str(e)}")
+                            continue
                         await asyncio.sleep(0.01)
                 
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
@@ -286,13 +289,16 @@ class ChatService:
                             points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
                             logger.info(f"Token usage for completion: {token_usage}, Cost: ${points:.6f}")
                     elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
-                        chunk = event["data"]["chunk"]
-                        if isinstance(chunk, str):
-                            full_response += chunk
-                            yield chunk
-                        else:
-                            full_response += str(chunk)
-                            yield str(chunk)
+                        try:
+                            chunk = event["data"]["chunk"]
+                            if chunk is None:
+                                continue
+                            chunk_str = str(chunk) if not isinstance(chunk, str) else chunk
+                            full_response += chunk_str
+                            yield chunk_str
+                        except Exception as e:
+                            logger.error(f"Error processing chunk: {str(e)}")
+                            continue
                         await asyncio.sleep(0.01)
                 
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
