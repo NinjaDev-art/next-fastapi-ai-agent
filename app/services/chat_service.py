@@ -54,7 +54,7 @@ class ChatService:
             if chat.response:
                 messages.append({"role": "assistant", "content": chat.response})
                 
-        return messages, system_prompt if provider.lower() == "anthropic" else None
+        return messages, system_prompt
 
     def get_points(self, inputToken: int, outputToken: int, ai_config: AiConfig) -> float:
         return (inputToken * ai_config.inputCost + outputToken * ai_config.outputCost) * ai_config.multiplier / 0.001
@@ -548,7 +548,6 @@ class ChatService:
         except Exception as e:
             logger.error(f"Error creating vector store: {str(e)}")
             raise
-        pass
 
     def _get_encoding(self, model: str):
         try:
@@ -590,7 +589,8 @@ class ChatService:
             Returns a dictionary with estimated token counts.
             """
             encoding = self._get_encoding(model)
-            print("encoding", encoding)
+            print("encoding", system_template)
+            
             prompt_tokens = self.estimate_tokens(messages, model) + len(encoding.encode(system_template))
             print("prompt_tokens", prompt_tokens)
             response_tokens = self.estimate_response_tokens(prompt_tokens)
