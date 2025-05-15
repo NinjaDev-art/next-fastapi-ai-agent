@@ -50,3 +50,54 @@ async def chat_generate_text(request: ChatRequest):
         raise e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) 
+    
+@router.post("/chat/generateAudio")
+async def chat_generate_audio(request: ChatRequest):
+    try:
+        response = await chat_service.generate_audio_response(
+            request.prompt,
+            request.files,
+            request.chatHistory,
+            request.model,
+            request.email,
+            request.sessionId,
+            request.reGenerate,
+            request.chatType,
+        )
+        return JSONResponse(
+            content={
+                "status": 200,
+                "message": "Success",
+                "data": response
+            }
+        )
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) 
+
+@router.post("/chat/generateImage")
+async def chat_generate_image(request: ChatRequest):
+    try:
+        response = await chat_service.generate_image_response(
+            request.prompt,
+            request.files,
+            request.chatHistory,
+            request.model,
+            request.email,
+            request.sessionId,
+            request.reGenerate,
+            request.chatType,
+        )
+        return JSONResponse(
+            content={
+                "status": 200,
+                "message": "Success",
+                "data": response
+            }
+        )
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) 
+

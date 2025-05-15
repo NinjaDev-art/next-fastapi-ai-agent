@@ -18,7 +18,7 @@ class Database:
         self.chat_collection = self.db["chats"]
         self.user_collection = self.db["users"]
         self.plan_collection = self.db["plans"]
-        self.usage_collection = self.db["usageStates"]
+        self.usage_collection = self.db["usagestats"]
 
     def get_system_prompt(self) -> str:
         try:

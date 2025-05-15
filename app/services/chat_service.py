@@ -27,6 +27,12 @@ from ..models.chat import IRouterChatLog, AiConfig
 from ..utils.file_processor import file_processor
 from ..utils.user_point import user_point
 
+from openai import OpenAI
+import boto3
+import os
+from botocore.config import Config
+import tempfile
+
 logger = logging.getLogger(__name__)
 
 class NoPointsAvailableException(Exception):
@@ -39,7 +45,8 @@ class ChatService:
         )
         self.vector_stores = {}
         self.encoding = None  # Will be set based on the model being used
-
+        self.openai = OpenAI(api_key=settings.OPENAI_API_KEY)
+        
     def get_chat_messages(self, chat_history: List[IRouterChatLog], provider: str = "openai") -> List[dict]:
         system_prompt = "" if provider == "edith" else db.get_system_prompt()
         messages = []
@@ -235,6 +242,7 @@ class ChatService:
                 
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
                 yield f"\n\n[POINTS]{points}"
+                self.remove_vector_store()
                 
             else:
                 print(f"Using direct {ai_config.provider} completion")
@@ -428,7 +436,8 @@ class ChatService:
                 outputTime = (datetime.now() - outputTime).total_seconds()
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
                 response = f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
-                
+                self.remove_vector_store()
+
             else:
                 llm = self._get_llm(ai_config, False)
                 print(f"Using direct {ai_config.provider} completion")
@@ -517,6 +526,318 @@ class ChatService:
             }
             return f"\n\n[ERROR]{error_response}"
 
+    async def generate_image_response(
+        self,
+        query: str,
+        files: List[str],
+        chat_history: List[IRouterChatLog],
+        model: str,
+        email: str,
+        sessionId: str,
+        reGenerate: bool,
+        chatType: int,
+    ) -> str:
+        logger.info(f"Generating response for query: {query}")
+        points = 0
+        token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        outputTime = datetime.now()
+        full_response = ""
+
+        try:
+            # Initialize user_point with email
+            await user_point.initialize(email)
+            ai_config = db.get_ai_config(model)
+
+            print("ai_config", ai_config)
+            if not ai_config:
+                return "Error: Invalid AI configuration"
+            
+            # Get messages for token estimation
+            messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
+            messages.append({"role": "user", "content": query})
+            # Process files if they exist
+            if files:
+                print("Using RAG with files")
+                vector_store = self._get_vector_store(files)
+                # Get relevant context from files
+                retriever = vector_store.as_retriever()
+                docs = retriever.get_relevant_documents(query)
+                context = "\n".join([doc.page_content for doc in docs])
+                # Enhance the prompt with context
+                enhanced_query = f"Context from files:\n{context}\n\nGenerate image based on this context and the following description: {query}"
+            else:
+                enhanced_query = query
+
+            # Estimate tokens for the prompt
+            estimated_tokens = self.estimate_total_tokens(messages, enhanced_query, "gpt-4")  # Using gpt-4 for estimation
+            estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
+            print(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
+
+            # Check if user has enough points
+            check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points)
+            if not check_user_available_to_chat:
+                error_response = {
+                    "error": True,
+                    "status": 429,
+                    "message": "Insufficient points available",
+                    "details": {
+                        "estimated_points": estimated_points,
+                        "available_points": user_point.user_doc.get("availablePoints", 0) if user_point.user_doc else 0,
+                        "points_used": user_point.user_doc.get("pointsUsed", 0) if user_point.user_doc else 0
+                    }
+                }
+                return f"\n\n[ERROR]{error_response}"
+
+            # Generate image using DALL-E 2
+            response = self.openai.images.generate(
+                model="dall-e-2",
+                prompt=enhanced_query,
+                n=1,
+                size="1024x1024"
+            )
+
+            # Get the image URL
+            image_url = response.data[0].url
+            full_response = image_url
+            if response.usage:
+                token_usage = {
+                    "prompt_tokens": response.usage.input_tokens,
+                    "completion_tokens": response.usage.output_tokens,
+                    "total_tokens": response.usage.total_tokens
+                }
+
+            # Calculate points for image generation
+            # DALL-E 2 costs are different from text generation
+            points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
+
+            outputTime = (datetime.now() - outputTime).total_seconds()
+            response = f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
+
+            # Save chat log and usage
+            await db.save_chat_log({
+                "email": email,
+                "sessionId": sessionId,
+                "reGenerate": reGenerate,
+                "title": "Image Generation",
+                "chat": {
+                    "prompt": query,
+                    "response": full_response,
+                    "timestamp": datetime.now(),
+                    "inputToken": token_usage["prompt_tokens"],
+                    "outputToken": token_usage["completion_tokens"],
+                    "outputTime": outputTime,
+                    "chatType": chatType,
+                    "fileUrls": files,
+                    "model": model,
+                    "points": points
+                }
+            })
+
+            await db.save_usage_log({
+                "date": datetime.now(),
+                "userId": user_point.user_doc.get("_id", None),
+                "modelId": model,
+                "planId": user_point.user_doc.get("currentplan", "680f11c0d44970f933ae5e54"),
+                "stats": {
+                    "tokenUsage": {
+                        "input": token_usage["prompt_tokens"],
+                        "output": token_usage["completion_tokens"],
+                        "total": token_usage["total_tokens"]
+                    },
+                    "pointsUsage": points
+                }
+            })
+
+            await user_point.save_user_points(points)
+            return response
+
+        except Exception as e:
+            logger.error(f"Error in generate_image_response: {str(e)}")
+            error_response = {
+                "error": True,
+                "status": 500,
+                "message": "An error occurred while processing your request",
+                "details": str(e)
+            }
+            return f"\n\n[ERROR]{error_response}"
+        
+    def estimate_audio_tokens(self, text: str) -> dict:
+        """
+        Estimate token usage for audio generation based on text length.
+        GPT-4o-mini-tts uses approximately 1 token per 4 characters.
+        """
+        try:
+            # Rough estimation: 1 token per 4 characters
+            char_count = len(text)
+            estimated_tokens = char_count // 4
+            
+            return {
+                "prompt_tokens": estimated_tokens,
+                "completion_tokens": 0,  # No completion tokens for audio generation
+                "total_tokens": estimated_tokens
+            }
+        except Exception as e:
+            logger.error(f"Error estimating audio tokens: {str(e)}")
+            return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+    async def generate_audio_response(
+        self,
+        query: str,
+        files: List[str],
+        chat_history: List[IRouterChatLog],
+        model: str,
+        email: str,
+        sessionId: str,
+        reGenerate: bool,
+        chatType: int,
+    ) -> str:
+        logger.info(f"Generating response for query: {query}")
+        points = 0
+        token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        outputTime = datetime.now()
+        full_response = ""
+
+        try:
+            # Initialize user_point with email
+            await user_point.initialize(email)
+            ai_config = db.get_ai_config(model)
+
+            print("ai_config", ai_config)
+            if not ai_config:
+                return "Error: Invalid AI configuration"
+
+            # Get messages for token estimation
+            messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
+            messages.append({"role": "user", "content": query})
+
+            # Process files if they exist
+            if files:
+                print("Using RAG with files")
+                vector_store = self._get_vector_store(files)
+                # Get relevant context from files
+                retriever = vector_store.as_retriever()
+                docs = retriever.get_relevant_documents(query)
+                context = "\n".join([doc.page_content for doc in docs])
+                # Enhance the prompt with context
+                enhanced_query = f"Context from files:\n{context}\n\nGenerate audio based on this context and the following text: {query}"
+            else:
+                enhanced_query = query
+
+            # Estimate tokens for audio generation
+            estimated_tokens = self.estimate_audio_tokens(enhanced_query)
+            estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
+            print(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
+
+            # Check if user has enough points
+            check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points)
+            if not check_user_available_to_chat:
+                error_response = {
+                    "error": True,
+                    "status": 429,
+                    "message": "Insufficient points available",
+                    "details": {
+                        "estimated_points": estimated_points,
+                        "available_points": user_point.user_doc.get("availablePoints", 0) if user_point.user_doc else 0,
+                        "points_used": user_point.user_doc.get("pointsUsed", 0) if user_point.user_doc else 0
+                    }
+                }
+                return f"\n\n[ERROR]{error_response}"
+
+            # Generate audio using GPT-4o-mini-tts
+            response = self.openai.audio.speech.with_streaming_response.create(
+                model="gpt-4o-mini-tts",
+                voice="alloy",  # You can also use "echo", "fable", "onyx", "nova", "shimmer"
+                input=enhanced_query
+            )
+
+            # Create a temporary directory for audio files
+            with tempfile.TemporaryDirectory() as temp_dir:
+                # Save the audio file temporarily
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                temp_audio_path = os.path.join(temp_dir, f"audio_{timestamp}.mp3")
+                response.stream_to_file(temp_audio_path)
+
+                # Initialize S3 client for DigitalOcean Spaces
+                s3_client = boto3.client('s3',
+                    endpoint_url=os.getenv('AWS_ENDPOINT_URL'),
+                    aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+                    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+                    config=Config(s3={'addressing_style': 'virtual'})
+                )
+
+                # Upload to DigitalOcean Spaces
+                bucket_name = os.getenv('AWS_BUCKET_NAME')
+                cdn_url = os.getenv('AWS_CDN_URL')
+                object_key = f"audio/audio_{timestamp}.mp3"
+                
+                s3_client.upload_file(
+                    temp_audio_path,
+                    bucket_name,
+                    object_key,
+                    ExtraArgs={'ACL': 'public-read', 'ContentType': 'audio/mpeg'}
+                )
+
+                # Generate the CDN URL
+                audio_url = f"{cdn_url}/{object_key}"
+                full_response = audio_url
+
+            # Calculate actual token usage
+            token_usage = self.estimate_audio_tokens(enhanced_query)
+            
+            # Calculate points for audio generation
+            points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
+
+            outputTime = (datetime.now() - outputTime).total_seconds()
+            response = f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
+
+            # Save chat log and usage
+            await db.save_chat_log({
+                "email": email,
+                "sessionId": sessionId,
+                "reGenerate": reGenerate,
+                "title": "Audio Generation",
+                "chat": {
+                    "prompt": query,
+                    "response": full_response,
+                    "timestamp": datetime.now(),
+                    "inputToken": token_usage["prompt_tokens"],
+                    "outputToken": token_usage["completion_tokens"],
+                    "outputTime": outputTime,
+                    "chatType": chatType,
+                    "fileUrls": files,
+                    "model": model,
+                    "points": points
+                }
+            })
+
+            await db.save_usage_log({
+                "date": datetime.now(),
+                "userId": user_point.user_doc.get("_id", None),
+                "modelId": model,
+                "planId": user_point.user_doc.get("currentplan", "680f11c0d44970f933ae5e54"),
+                "stats": {
+                    "tokenUsage": {
+                        "input": token_usage["prompt_tokens"],
+                        "output": token_usage["completion_tokens"],
+                        "total": token_usage["total_tokens"]
+                    },
+                    "pointsUsage": points
+                }
+            })
+
+            await user_point.save_user_points(points)
+            return response
+
+        except Exception as e:
+            logger.error(f"Error in generate_audio_response: {str(e)}")
+            error_response = {
+                "error": True,
+                "status": 500,
+                "message": "An error occurred while processing your request",
+                "details": str(e)
+            }
+            return f"\n\n[ERROR]{error_response}"
+
     def _get_vector_store(self, files: List[str]) -> Chroma:
         # Implementation of vector store creation
         logger.info(f"Processing files: {files}")
@@ -547,6 +868,18 @@ class ChatService:
             return vector_store
         except Exception as e:
             logger.error(f"Error creating vector store: {str(e)}")
+            raise
+
+    def remove_vector_store(self):
+        try:
+            # Get all collections in the database
+            collections = self.chroma_client.list_collections()
+            for collection in collections:
+                # Delete each collection
+                self.chroma_client.delete_collection(collection.name)
+            logger.info("All collections deleted")
+        except Exception as e:
+            logger.error(f"Error deleting collections: {str(e)}")
             raise
 
     def _get_encoding(self, model: str):
