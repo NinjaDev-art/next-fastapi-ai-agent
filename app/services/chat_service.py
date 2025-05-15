@@ -773,7 +773,12 @@ class ChatService:
                 # Save the audio file temporarily
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 temp_audio_path = os.path.join(temp_dir, f"audio_{timestamp}.mp3")
-                response.stream_to_file(temp_audio_path)
+                
+                # Write the streaming response to file
+                with open(temp_audio_path, 'wb') as f:
+                    for chunk in response.iter_bytes():
+                        if chunk:
+                            f.write(chunk)
 
                 # Initialize S3 client for DigitalOcean Spaces
                 s3_client = boto3.client('s3',
