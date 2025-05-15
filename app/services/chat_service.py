@@ -759,15 +759,15 @@ class ChatService:
 
                 # Initialize S3 client for DigitalOcean Spaces
                 s3_client = boto3.client('s3',
-                    endpoint_url=os.getenv('AWS_ENDPOINT_URL'),
-                    aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-                    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+                    endpoint_url=settings.AWS_ENDPOINT_URL,
+                    aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+                    aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
                     config=Config(s3={'addressing_style': 'virtual'})
                 )
 
                 # Upload to DigitalOcean Spaces
-                bucket_name = os.getenv('AWS_BUCKET_NAME')
-                cdn_url = os.getenv('AWS_CDN_URL')
+                bucket_name = settings.AWS_BUCKET_NAME
+                cdn_url = settings.AWS_CDN_URL
                 object_key = f"audio/audio_{timestamp}.mp3"
                 
                 s3_client.upload_file(

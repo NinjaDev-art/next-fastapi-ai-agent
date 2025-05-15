@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     OLLAMA_DEFAULT_MODEL: str = os.getenv("OLLAMA_DEFAULT_MODEL", "llama2")
     
     AWS_CDN_URL: Optional[str] = os.getenv("AWS_CDN_URL")
+    AWS_BUCKET_NAME: Optional[str] = os.getenv("AWS_BUCKET_NAME")
+    AWS_ACCESS_KEY_ID: Optional[str] = os.getenv("AWS_ACCESS_KEY_ID")
+    AWS_SECRET_ACCESS_KEY: Optional[str] = os.getenv("AWS_SECRET_ACCESS_KEY")
+    AWS_ENDPOINT_URL: Optional[str] = os.getenv("AWS_ENDPOINT_URL")
     
     # Application settings
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
