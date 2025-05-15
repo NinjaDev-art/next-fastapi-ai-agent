@@ -533,12 +533,15 @@ class ChatService:
             logger.info(f"Split text into {len(texts)} chunks")
             
             logger.info("Creating vector store")
-            # Create a temporary directory for Chroma
+            # Create a unique collection name based on timestamp to avoid dimension conflicts
+            import time
+            collection_name = f"collection_{int(time.time())}"
             persist_directory = "chroma_db"
             vector_store = Chroma.from_texts(
                 texts=texts,
                 embedding=self.embeddings,
-                persist_directory=persist_directory
+                persist_directory=persist_directory,
+                collection_name=collection_name
             )
             logger.info("Vector store created")
             return vector_store
