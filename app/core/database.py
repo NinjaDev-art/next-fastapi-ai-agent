@@ -93,11 +93,12 @@ class Database:
             return None
 
     async def save_chat_log(self, chat_data: dict):
+        print(chat_data["title"])
         try:
-            router_doc = self.chat_collection.find_one({"email": chat_data["email"]})
+            chat_doc = self.chat_collection.find_one({"email": chat_data["email"]})
             
-            if not router_doc:
-                self.router_collection.insert_one({
+            if not chat_doc:
+                self.chat_collection.insert_one({
                     "email": chat_data["email"],
                     "session": [{
                         "id": chat_data["sessionId"],
@@ -107,7 +108,7 @@ class Database:
                 })
                 return
 
-            sessions = router_doc.get("session", [])
+            sessions = chat_doc.get("session", [])
             session_index = next((i for i, s in enumerate(sessions) if s["id"] == chat_data["sessionId"]), -1)
 
             if session_index == -1:
@@ -123,7 +124,7 @@ class Database:
                 else:
                     current_session["chats"].append(chat_data["chat"])
 
-            self.router_collection.update_one(
+            self.chat_collection.update_one(
                 {"email": chat_data["email"]},
                 {"$set": {"session": sessions}}
             )
