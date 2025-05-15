@@ -584,19 +584,23 @@ class ChatService:
         return int(prompt_tokens * 1.5)
 
     def estimate_total_tokens(self, messages: List[dict], system_template: str, model: str) -> dict:
-        """
-        Estimate total token usage including both prompt and response.
-        Returns a dictionary with estimated token counts.
-        """
-        encoding = self._get_encoding(model)
-        prompt_tokens = self.estimate_tokens(messages, model) + len(encoding.encode(system_template))
-        response_tokens = self.estimate_response_tokens(prompt_tokens)
-        total_tokens = prompt_tokens + response_tokens
+        try:
+            """
+            Estimate total token usage including both prompt and response.
+            Returns a dictionary with estimated token counts.
+            """
+            encoding = self._get_encoding(model)
+            prompt_tokens = self.estimate_tokens(messages, model) + len(encoding.encode(system_template))
+            response_tokens = self.estimate_response_tokens(prompt_tokens)
+            total_tokens = prompt_tokens + response_tokens
 
-        return {
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": response_tokens,
-            "total_tokens": total_tokens
-        }
+            return {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": response_tokens,
+                "total_tokens": total_tokens
+            }
+        except Exception as e:
+            logger.error(f"Error estimating total tokens: {str(e)}")
+            raise
 
 chat_service = ChatService() 
