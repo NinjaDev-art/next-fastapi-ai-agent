@@ -64,6 +64,9 @@ class ChatService:
         return messages, system_prompt
 
     def get_points(self, inputToken: int, outputToken: int, ai_config: AiConfig) -> float:
+        print("inputToken", inputToken)
+        print("outputToken", outputToken)
+        print("ai_config", ai_config)
         return (inputToken * ai_config.inputCost + outputToken * ai_config.outputCost) * ai_config.multiplier / 0.001
 
     def _get_llm(self, ai_config: AiConfig, isStream: bool = True):
@@ -430,8 +433,8 @@ class ChatService:
                     | StrOutputParser()
                 )
 
-                ai_response = await rag_chain.ainvoke(query)
-                full_response = ai_response
+                ai_response = await rag_chain.invoke(query)
+                full_response = ai_response.content
                 token_usage = ai_response.response_metadata.token_usage if hasattr(ai_response, 'response_metadata') else {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
                 outputTime = (datetime.now() - outputTime).total_seconds()
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
@@ -616,6 +619,8 @@ class ChatService:
             except Exception as e:
                 logger.error(f"Error converting image to base64: {str(e)}")
                 full_response = image_url  # Fallback to original URL if conversion fails
+
+            print(f"full_response: {response}")
             
             if response.usage:
                 token_usage = {
