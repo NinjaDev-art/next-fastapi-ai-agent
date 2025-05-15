@@ -630,17 +630,45 @@ class ChatService:
             # Convert image URL to base64
             try:
                 import requests
-                import base64
-                from io import BytesIO
+                import tempfile
+                import os
                 
                 # Download the image
                 image_response = requests.get(image_url)
                 image_response.raise_for_status()
                 
-                # Convert to base64
-                image_data = base64.b64encode(image_response.content).decode('utf-8')
-                image_type = image_response.headers.get('content-type', 'image/jpeg')
-                full_response = f"data:{image_type};base64,{image_data}"
+                # Create a temporary directory for image files
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    # Save the image file temporarily
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    temp_image_path = os.path.join(temp_dir, f"image_{timestamp}.png")
+                    
+                    # Write the response content to file
+                    with open(temp_image_path, 'wb') as f:
+                        f.write(image_response.content)
+
+                    # Initialize S3 client for DigitalOcean Spaces
+                    s3_client = boto3.client('s3',
+                        endpoint_url=settings.AWS_ENDPOINT_URL,
+                        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+                        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+                        config=Config(s3={'addressing_style': 'virtual'})
+                    )
+
+                    # Upload to DigitalOcean Spaces
+                    bucket_name = settings.AWS_BUCKET_NAME
+                    cdn_url = settings.AWS_CDN_URL
+                    object_key = f"images/image_{timestamp}.png"
+                    
+                    s3_client.upload_file(
+                        temp_image_path,
+                        bucket_name,
+                        object_key,
+                        ExtraArgs={'ACL': 'public-read', 'ContentType': 'image/png'}
+                    )
+
+                    # Generate the CDN URL
+                    full_response = f"{cdn_url}/{object_key}"
             except Exception as e:
                 logger.error(f"Error converting image to base64: {str(e)}")
                 full_response = image_url  # Fallback to original URL if conversion fails
