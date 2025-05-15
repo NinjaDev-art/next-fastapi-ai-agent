@@ -479,8 +479,8 @@ class ChatService:
                 )
 
                 ai_response = await chain.invoke(query)
-                full_response = ai_response.content
                 print(f"token usage ${ai_response}")
+                full_response = ai_response.content
                 token_usage = ai_response.response_metadata.token_usage if hasattr(ai_response, 'response_metadata') else {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
                 outputTime = (datetime.now() - outputTime).total_seconds()
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
