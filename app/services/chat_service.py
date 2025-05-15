@@ -364,7 +364,6 @@ class ChatService:
             # Initialize user_point with email
             await user_point.initialize(email)
             ai_config = db.get_ai_config(model)
-            response = ""
 
             print("ai_config", ai_config)
             if not ai_config:
@@ -379,7 +378,6 @@ class ChatService:
                 messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
                 messages.append({"role": "user", "content": query})
                 
-                # system_template = (system_prompt or db.get_system_prompt()) + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
                 system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
                 
                 # Estimate tokens before making the API call
@@ -425,15 +423,13 @@ class ChatService:
                 token_usage = ai_response.response_metadata.token_usage
                 outputTime = (datetime.now() - outputTime).total_seconds()
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
-                response = f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
+                yield f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
                 
             else:
                 logger.info(f"Using direct {ai_config.provider} completion")
                 messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
                 messages.append({"role": "user", "content": query})
                 
-                # Estimate tokens before making the API call
-                #system_template = system_prompt or db.get_system_prompt()
                 system_template = system_prompt
                 estimated_tokens = self.estimate_total_tokens(messages, system_template, model)
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
@@ -473,7 +469,7 @@ class ChatService:
                 token_usage = ai_response.response_metadata.token_usage
                 outputTime = (datetime.now() - outputTime).total_seconds()
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
-                response = f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
+                yield f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
             
             await db.save_chat_log({
                 "email": email,
@@ -508,7 +504,6 @@ class ChatService:
                 }
             })
             await user_point.save_user_points(points)
-            return response
         except Exception as e:
             logger.error(f"Error in generate_stream_response: {str(e)}")
             error_response = {
@@ -517,7 +512,7 @@ class ChatService:
                 "message": "An error occurred while processing your request",
                 "details": str(e)
             }
-            return f"\n\n[ERROR]{error_response}"
+            yield f"\n\n[ERROR]{error_response}"
 
     def _get_vector_store(self, files: List[str]) -> Chroma:
         # Implementation of vector store creation
