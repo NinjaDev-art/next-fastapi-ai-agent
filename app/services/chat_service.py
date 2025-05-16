@@ -314,9 +314,9 @@ class ChatService:
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
                 yield f"\n\n[POINTS]{points}"
             
-            # Remove vector store after stream is fully completed
-            if files:
-                self.remove_vector_store()
+            # # Remove vector store after stream is fully completed
+            # if files:
+            #     self.remove_vector_store()
             
             outputTime = (datetime.now() - outputTime).total_seconds()
             yield f"\n\n[OUTPUT_TIME]{outputTime}"
@@ -493,9 +493,9 @@ class ChatService:
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
                 response = f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
             
-            # Remove vector store after stream is fully completed
-            if files:
-                self.remove_vector_store()
+            # # Remove vector store after stream is fully completed
+            # if files:
+            #     self.remove_vector_store()
 
             await db.save_chat_log({
                 "email": email,
@@ -690,9 +690,9 @@ class ChatService:
             else:
                 token_usage = estimated_tokens
 
-            # Remove vector store after stream is fully completed
-            if files:
-                self.remove_vector_store()
+            # # Remove vector store after stream is fully completed
+            # if files:
+            #     self.remove_vector_store()
 
             points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
             outputTime = (datetime.now() - outputTime).total_seconds()
@@ -878,9 +878,9 @@ class ChatService:
             outputTime = (datetime.now() - outputTime).total_seconds()
             response = f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
 
-            # Remove vector store after stream is fully completed
-            if files:
-                self.remove_vector_store()
+            # # Remove vector store after stream is fully completed
+            # if files:
+            #     self.remove_vector_store()
 
             # Save chat log and usage
             await db.save_chat_log({
@@ -930,10 +930,50 @@ class ChatService:
             }
             return f"\n\n[ERROR]{error_response}"
 
+    def _cleanup_old_collections(self, max_age_hours: int = 24):
+        """
+        Clean up old collections from Chroma DB.
+        Args:
+            max_age_hours: Maximum age of collections in hours before they are deleted
+        """
+        try:
+            from chromadb import Client
+            import time
+            from datetime import datetime, timedelta
+
+            client = Client()
+            collections = client.list_collections()
+            current_time = datetime.now()
+            
+            for collection in collections:
+                # Extract timestamp from collection name
+                try:
+                    timestamp = int(collection.name.split('_')[1])
+                    collection_time = datetime.fromtimestamp(timestamp)
+                    age = current_time - collection_time
+                    
+                    # Delete if collection is older than max_age_hours
+                    if age > timedelta(hours=max_age_hours):
+                        client.delete_collection(collection.name)
+                        logger.info(f"Deleted old collection: {collection.name}")
+                except (ValueError, IndexError):
+                    # If collection name doesn't match expected format, skip it
+                    continue
+                    
+        except Exception as e:
+            logger.error(f"Error cleaning up old collections: {str(e)}")
+            # Don't raise the exception as this is a cleanup operation
+
     def _get_vector_store(self, files: List[str]) -> Chroma:
-        # Implementation of vector store creation
+        """
+        Create or get a vector store for the given files.
+        Returns a Chroma vector store instance.
+        """
         logger.info(f"Processing files: {files}")
         try:
+            # Clean up old collections first
+            self._cleanup_old_collections()
+            
             # Process files and create vector store
             text = file_processor.process_files(files)
             logger.info("Creating text splitter")
@@ -946,20 +986,45 @@ class ChatService:
             logger.info(f"Split text into {len(texts)} chunks")
             
             logger.info("Creating vector store")
-            # Create a unique collection name based on timestamp to avoid dimension conflicts
+            # Create a unique collection name based on timestamp
             import time
             collection_name = f"collection_{int(time.time())}"
             persist_directory = "chroma_db"
-            vector_store = Chroma.from_texts(
-                texts=texts,
-                embedding=self.embeddings,
-                persist_directory=persist_directory,
-                collection_name=collection_name
-            )
-            logger.info("Vector store created")
+            
+            try:
+                # Try to create new vector store
+                vector_store = Chroma.from_texts(
+                    texts=texts,
+                    embedding=self.embeddings,
+                    persist_directory=persist_directory,
+                    collection_name=collection_name
+                )
+                logger.info(f"Created new vector store with collection: {collection_name}")
+            except Exception as e:
+                logger.error(f"Error creating new vector store: {str(e)}")
+                # If creation fails, try to use existing collection
+                from chromadb import Client
+                client = Client()
+                existing_collections = client.list_collections()
+                
+                if existing_collections:
+                    # Use the most recent collection
+                    latest_collection = max(existing_collections, 
+                                         key=lambda x: int(x.name.split('_')[1]))
+                    vector_store = Chroma(
+                        client=client,
+                        collection_name=latest_collection.name,
+                        embedding_function=self.embeddings,
+                        persist_directory=persist_directory
+                    )
+                    logger.info(f"Using existing collection: {latest_collection.name}")
+                else:
+                    raise Exception("No existing collections available and failed to create new one")
+            
             return vector_store
+            
         except Exception as e:
-            logger.error(f"Error creating vector store: {str(e)}")
+            logger.error(f"Error in _get_vector_store: {str(e)}")
             raise
 
     def remove_vector_store(self):
