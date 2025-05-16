@@ -129,7 +129,7 @@ class ChatService:
                 temperature=0.7,
                 streaming=isStream,
                 callbacks=[StreamingStdOutCallbackHandler()],
-                model="llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model,
+                model="qwen-3-32b" if ai_config.provider.lower() == "edith" else ai_config.model,
                 cerebras_api_key=settings.CEREBRAS_API_KEY,
                 stream_usage=isStream
             )
