@@ -171,7 +171,6 @@ class ChatService:
                 return
 
             if files:
-                self.remove_vector_store()
                 print("Using RAG with files")
                 vector_store = self._get_vector_store(files)
                 
@@ -315,6 +314,10 @@ class ChatService:
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
                 yield f"\n\n[POINTS]{points}"
             
+            # Remove vector store after stream is fully completed
+            if files:
+                self.remove_vector_store()
+            
             outputTime = (datetime.now() - outputTime).total_seconds()
             yield f"\n\n[OUTPUT_TIME]{outputTime}"
             
@@ -388,7 +391,6 @@ class ChatService:
                 return "Error: Invalid AI configuration"
 
             if files:
-                self.remove_vector_store()
                 print("Using RAG with files")
                 llm = self._get_llm(ai_config, False)
                 vector_store = self._get_vector_store(files)
@@ -491,6 +493,10 @@ class ChatService:
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
                 response = f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
             
+            # Remove vector store after stream is fully completed
+            if files:
+                self.remove_vector_store()
+
             await db.save_chat_log({
                 "email": email,
                 "sessionId": sessionId,
@@ -684,6 +690,10 @@ class ChatService:
             else:
                 token_usage = estimated_tokens
 
+            # Remove vector store after stream is fully completed
+            if files:
+                self.remove_vector_store()
+
             points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
             outputTime = (datetime.now() - outputTime).total_seconds()
             response = f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
@@ -867,6 +877,10 @@ class ChatService:
 
             outputTime = (datetime.now() - outputTime).total_seconds()
             response = f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
+
+            # Remove vector store after stream is fully completed
+            if files:
+                self.remove_vector_store()
 
             # Save chat log and usage
             await db.save_chat_log({
