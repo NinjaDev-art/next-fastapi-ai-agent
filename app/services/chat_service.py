@@ -171,6 +171,7 @@ class ChatService:
                 return
 
             if files:
+                self.remove_vector_store()
                 print("Using RAG with files")
                 vector_store = self._get_vector_store(files)
                 
@@ -245,7 +246,6 @@ class ChatService:
                 
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
                 yield f"\n\n[POINTS]{points}"
-                self.remove_vector_store()
                 
             else:
                 print(f"Using direct {ai_config.provider} completion")
@@ -388,6 +388,7 @@ class ChatService:
                 return "Error: Invalid AI configuration"
 
             if files:
+                self.remove_vector_store()
                 print("Using RAG with files")
                 llm = self._get_llm(ai_config, False)
                 vector_store = self._get_vector_store(files)
@@ -442,7 +443,6 @@ class ChatService:
                 outputTime = (datetime.now() - outputTime).total_seconds()
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
                 response = f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
-                self.remove_vector_store()
 
             else:
                 llm = self._get_llm(ai_config, False)
