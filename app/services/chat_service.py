@@ -77,7 +77,7 @@ class ChatService:
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
                 anthropic_api_key=settings.ANTHROPIC_API_KEY,
-                stream_options={"include_usage": isStream}
+                stream_usage=isStream
             )
         elif ai_config.provider.lower() == "deepseek":
             return ChatDeepSeek(
@@ -86,7 +86,7 @@ class ChatService:
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
                 deepseek_api_key=settings.DEEPSEEK_API_KEY,
-                stream_options={"include_usage": isStream}
+                stream_usage=isStream
             )
         elif ai_config.provider.lower() == "google":
             return ChatGoogleGenerativeAI(
@@ -95,7 +95,7 @@ class ChatService:
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
                 google_api_key=settings.GOOGLE_API_KEY,
-                stream_options={"include_usage": isStream}
+                stream_usage=isStream
             )
         elif ai_config.provider.lower() == "xai":
             return ChatXAI(   
