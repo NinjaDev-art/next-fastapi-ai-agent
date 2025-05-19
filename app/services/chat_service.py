@@ -135,7 +135,7 @@ class ChatService:
                 temperature=0.7,
                 streaming=isStream,
                 callbacks=[StreamingStdOutCallbackHandler()],
-                model="llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model,
+                model="llama-3.3-70b" if ai_config.provider.lower() == "edith" else ai_config.model,
                 max_tokens=2000,
                 cerebras_api_key=settings.CEREBRAS_API_KEY,
                 stream_usage=isStream
@@ -217,9 +217,9 @@ class ChatService:
                 
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
-                    # *[HumanMessagePromptTemplate.from_template(msg["content"]) if msg["role"] == "user" 
-                    #   else AIMessagePromptTemplate.from_template(msg["content"]) 
-                    #   for msg in messages[:-1]],  # Include all messages except the last one
+                    *[HumanMessagePromptTemplate.from_template(msg["content"]) if msg["role"] == "user" 
+                      else AIMessagePromptTemplate.from_template(msg["content"]) 
+                      for msg in messages[:-1]],  # Include all messages except the last one
                     HumanMessagePromptTemplate.from_template("{question}")  # Last message is the current question
                 ])
                 
@@ -292,17 +292,14 @@ class ChatService:
                 
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
-                    # *[HumanMessagePromptTemplate.from_template(msg["content"]) if msg["role"] == "user" 
-                    #   else AIMessagePromptTemplate.from_template(msg["content"]) 
-                    #   for msg in messages[:-1]],  # Include all messages except the last one
+                    *[HumanMessagePromptTemplate.from_template(msg["content"]) if msg["role"] == "user" 
+                      else AIMessagePromptTemplate.from_template(msg["content"]) 
+                      for msg in messages[:-1]],  # Include all messages except the last one
                     HumanMessagePromptTemplate.from_template("{question}")  # Last message is the current question
                 ])
                 
                 chain = (
-                    {
-                        "question": RunnablePassthrough(),
-                        "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
-                    }
+                    {"question": RunnablePassthrough()}
                     | prompt
                     | llm
                     | StrOutputParser()
@@ -448,9 +445,9 @@ class ChatService:
                 
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
-                    # *[HumanMessagePromptTemplate.from_template(msg["content"]) if msg["role"] == "user" 
-                    #   else AIMessagePromptTemplate.from_template(msg["content"]) 
-                    #   for msg in messages[:-1]],  # Include all messages except the last one
+                    *[HumanMessagePromptTemplate.from_template(msg["content"]) if msg["role"] == "user" 
+                      else AIMessagePromptTemplate.from_template(msg["content"]) 
+                      for msg in messages[:-1]],  # Include all messages except the last one
                     HumanMessagePromptTemplate.from_template("{question}")  # Last message is the current question
                 ])
                 
@@ -502,17 +499,14 @@ class ChatService:
                 
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
-                    # *[HumanMessagePromptTemplate.from_template(msg["content"]) if msg["role"] == "user" 
-                    #   else AIMessagePromptTemplate.from_template(msg["content"]) 
-                    #   for msg in messages[:-1]],  # Include all messages except the last one
+                    *[HumanMessagePromptTemplate.from_template(msg["content"]) if msg["role"] == "user" 
+                      else AIMessagePromptTemplate.from_template(msg["content"]) 
+                      for msg in messages[:-1]],  # Include all messages except the last one
                     HumanMessagePromptTemplate.from_template("{question}")  # Last message is the current question
                 ])
                 
                 chain = (
-                    {
-                        "question": RunnablePassthrough(),
-                        "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
-                    }
+                    {"question": RunnablePassthrough()}
                     | prompt
                     | llm
                     | StrOutputParser()
