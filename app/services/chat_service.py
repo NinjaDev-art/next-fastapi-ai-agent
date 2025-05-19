@@ -1114,7 +1114,7 @@ class ChatService:
         max_tokens = 2000
         return min(int(prompt_tokens * 1.5), max_tokens)
 
-    def estimate_total_tokens(self, messages: List[dict], system_template: str, model: str, context = None) -> dict:
+    def estimate_total_tokens(self, messages: List[dict], system_template: str, model: str, context = "") -> dict:
         try:
             """
             Estimate total token usage including both prompt and response.
