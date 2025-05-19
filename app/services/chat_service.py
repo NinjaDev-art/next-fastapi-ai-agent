@@ -48,7 +48,7 @@ class ChatService:
         self.openai = OpenAI(api_key=settings.OPENAI_API_KEY)
         
     def get_chat_messages(self, chat_history: List[IRouterChatLog], provider: str = "openai") -> List[dict]:
-        system_prompt = "" if provider == "edith" else db.get_system_prompt()
+        system_prompt = "" if provider != "edith" else db.get_system_prompt()
         messages = []
         
         # For Anthropic, we don't include system message in the messages array
