@@ -76,6 +76,7 @@ class ChatService:
                 streaming=isStream,
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
+                max_tokens=2000,
                 anthropic_api_key=settings.ANTHROPIC_API_KEY,
                 stream_usage=isStream
             )
@@ -85,6 +86,7 @@ class ChatService:
                 streaming=isStream,
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
+                max_tokens=2000,
                 deepseek_api_key=settings.DEEPSEEK_API_KEY,
                 stream_usage=isStream
             )
@@ -94,6 +96,7 @@ class ChatService:
                 streaming=isStream,
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
+                max_tokens=2000,
                 google_api_key=settings.GOOGLE_API_KEY,
                 stream_usage=isStream
             )
@@ -103,6 +106,7 @@ class ChatService:
                 streaming=isStream,
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
+                max_tokens=2000,
                 xai_api_key=settings.XAI_API_KEY,
                 stream_usage=isStream
             )
@@ -112,6 +116,7 @@ class ChatService:
                 streaming=isStream,
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
+                max_tokens=2000,
                 base_url=settings.OLLAMA_BASE_URL,
                 stream_usage=isStream
             )
@@ -121,6 +126,7 @@ class ChatService:
                 streaming=isStream,
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
+                max_tokens=2000,
                 mistral_api_key=settings.MISTRAL_API_KEY,
                 stream_usage=isStream
             )
@@ -130,6 +136,7 @@ class ChatService:
                 streaming=isStream,
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model="llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model,
+                max_tokens=2000,
                 cerebras_api_key=settings.CEREBRAS_API_KEY,
                 stream_usage=isStream
             )
@@ -139,6 +146,7 @@ class ChatService:
                 streaming=isStream,
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
+                max_tokens=2000,
                 openai_api_key=settings.OPENAI_API_KEY,
                 stream_usage=isStream
             )
@@ -180,9 +188,14 @@ class ChatService:
                 
                 # system_template = (system_prompt or db.get_system_prompt()) + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
                 system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
+
+                # Get relevant context from files for token estimation
+                retriever = vector_store.as_retriever()
+                docs = retriever.get_relevant_documents(query)
+                context = "\n".join([doc.page_content for doc in docs])
                 
                 # Estimate tokens before making the API call
-                estimated_tokens = self.estimate_total_tokens(messages, system_template, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model)
+                estimated_tokens = self.estimate_total_tokens(messages, system_template, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model, context)
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
                 print(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
                 
@@ -400,9 +413,14 @@ class ChatService:
                 messages.append({"role": "user", "content": query})
                 
                 system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
+
+                # Get relevant context from files for token estimation
+                retriever = vector_store.as_retriever()
+                docs = retriever.get_relevant_documents(query)
+                context = "\n".join([doc.page_content for doc in docs])
                 
                 # Estimate tokens before making the API call
-                estimated_tokens = self.estimate_total_tokens(messages, system_template, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model)
+                estimated_tokens = self.estimate_total_tokens(messages, system_template, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model, context)
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
                 print(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
                 
@@ -1093,9 +1111,10 @@ class ChatService:
         """
         # A common rule of thumb is that responses are typically 1.5-2x the length of the prompt
         # We'll use 1.5x as a conservative estimate
-        return int(prompt_tokens * 1.5)
+        max_tokens = 2000
+        return min(int(prompt_tokens * 1.5), max_tokens)
 
-    def estimate_total_tokens(self, messages: List[dict], system_template: str, model: str) -> dict:
+    def estimate_total_tokens(self, messages: List[dict], system_template: str, model: str, context = None) -> dict:
         try:
             """
             Estimate total token usage including both prompt and response.
@@ -1104,7 +1123,7 @@ class ChatService:
             encoding = self._get_encoding(model)
             print("encoding", system_template)
             
-            prompt_tokens = self.estimate_tokens(messages, model) + len(encoding.encode(system_template))
+            prompt_tokens = self.estimate_tokens(messages, model) + len(encoding.encode(system_template)) + len(encoding.encode(context))
             print("prompt_tokens", prompt_tokens)
             response_tokens = self.estimate_response_tokens(prompt_tokens)
             print("response_tokens", response_tokens)
