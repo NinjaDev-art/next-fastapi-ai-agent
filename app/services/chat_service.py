@@ -17,7 +17,7 @@ from langchain_cerebras import ChatCerebras
 from langchain_openai import OpenAIEmbeddings
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
-from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate, AIMessagePromptTemplate
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from fastapi import HTTPException
 
@@ -217,7 +217,10 @@ class ChatService:
                 
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
-                    HumanMessagePromptTemplate.from_template("{question}")
+                    *[HumanMessagePromptTemplate.from_template(msg["content"]) if msg["role"] == "user" 
+                      else AIMessagePromptTemplate.from_template(msg["content"]) 
+                      for msg in messages[:-1]],  # Include all messages except the last one
+                    HumanMessagePromptTemplate.from_template("{question}")  # Last message is the current question
                 ])
                 
                 rag_chain = (
@@ -289,7 +292,10 @@ class ChatService:
                 
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
-                    HumanMessagePromptTemplate.from_template("{question}")
+                    *[HumanMessagePromptTemplate.from_template(msg["content"]) if msg["role"] == "user" 
+                      else AIMessagePromptTemplate.from_template(msg["content"]) 
+                      for msg in messages[:-1]],  # Include all messages except the last one
+                    HumanMessagePromptTemplate.from_template("{question}")  # Last message is the current question
                 ])
                 
                 chain = (
@@ -439,7 +445,10 @@ class ChatService:
                 
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
-                    HumanMessagePromptTemplate.from_template("{question}")
+                    *[HumanMessagePromptTemplate.from_template(msg["content"]) if msg["role"] == "user" 
+                      else AIMessagePromptTemplate.from_template(msg["content"]) 
+                      for msg in messages[:-1]],  # Include all messages except the last one
+                    HumanMessagePromptTemplate.from_template("{question}")  # Last message is the current question
                 ])
                 
                 rag_chain = (
@@ -490,7 +499,10 @@ class ChatService:
                 
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
-                    HumanMessagePromptTemplate.from_template("{question}")
+                    *[HumanMessagePromptTemplate.from_template(msg["content"]) if msg["role"] == "user" 
+                      else AIMessagePromptTemplate.from_template(msg["content"]) 
+                      for msg in messages[:-1]],  # Include all messages except the last one
+                    HumanMessagePromptTemplate.from_template("{question}")  # Last message is the current question
                 ])
                 
                 chain = (
