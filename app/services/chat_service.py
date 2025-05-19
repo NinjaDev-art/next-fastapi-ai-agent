@@ -142,7 +142,6 @@ class ChatService:
             )
         else:  # Default to OpenAI
             return ChatOpenAI(
-                temperature=0.7,
                 streaming=isStream,
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
