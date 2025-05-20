@@ -18,6 +18,7 @@ async def chat_stream(request: ChatRequest):
                 request.sessionId,
                 request.reGenerate,
                 request.chatType,
+                request.learningPrompt,
             ),
             media_type="text/event-stream"
         )
@@ -38,6 +39,7 @@ async def chat_generate_text(request: ChatRequest):
             request.sessionId,
             request.reGenerate,
             request.chatType,
+            request.learningPrompt,
         )
         return JSONResponse(
             content={
