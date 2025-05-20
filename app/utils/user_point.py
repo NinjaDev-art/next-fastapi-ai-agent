@@ -34,8 +34,8 @@ class UserPoint:
             return
             
         user_doc = await db.get_user_by_email(self.email)
-        user_doc["pointsUsed"] = user_doc.get("pointsUsed", 0) + points
-        await db.update_user_points(self.email, user_doc)
+        pointsUsed = user_doc.get("pointsUsed", 0) + points
+        await db.update_user_points(self.email, {"pointsUsed": pointsUsed})
 
 # Create a singleton instance
 user_point = UserPoint()
