@@ -354,7 +354,8 @@ class ChatService:
                     "chatType": chatType,
                     "fileUrls": files,
                     "model": model,
-                    "points": points
+                    "points": points,
+                    "count": 1
                 }
             })
             await db.save_usage_log({
@@ -541,7 +542,8 @@ class ChatService:
                     "chatType": chatType,
                     "fileUrls": files,
                     "model": model,
-                    "points": points
+                    "points": points,
+                    "count": 1
                 }
             })
             await db.save_usage_log({
@@ -743,7 +745,8 @@ class ChatService:
                     "chatType": chatType,
                     "fileUrls": files,
                     "model": model,
-                    "points": points
+                    "points": points,
+                    "count": 1
                 }
             })
 
@@ -927,7 +930,8 @@ class ChatService:
                     "chatType": chatType,
                     "fileUrls": files,
                     "model": model,
-                    "points": points
+                    "points": points,
+                    "count": 1
                 }
             })
 

@@ -120,7 +120,7 @@ class Database:
             else:
                 current_session = sessions[session_index]
                 if chat_data["reGenerate"] and current_session["chats"]:
-                    current_session["chats"][-1] = chat_data["chat"]
+                    current_session["chats"][-1] = {**chat_data["chat"], "count": current_session["chats"][-1]["count"] + 1}
                 else:
                     current_session["chats"].append(chat_data["chat"])
 
