@@ -14,7 +14,8 @@ class ChatRequest(BaseModel):
     email: str = ""
     reGenerate: bool = False
     model: str = "gpt-3.5-turbo"
-    chatType: int = 0
+    chatType: int = 0,
+    learningPrompt: str = ""
 
 class AiConfig(BaseModel):
     name: str

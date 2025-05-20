@@ -160,6 +160,7 @@ class ChatService:
         sessionId: str,
         reGenerate: bool,
         chatType: int,
+        learningPrompt: str,
     ) -> AsyncGenerator[str, None]:
         logger.info(f"Generating response for query: {query}")
         full_response = ""
@@ -265,7 +266,7 @@ class ChatService:
                 print(f"Using direct {ai_config.provider} completion")
                 llm = self._get_llm(ai_config)
                 messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
-                messages.append({"role": "user", "content": query})
+                messages.append({"role": "user", "content": learningPrompt if chatType == 1 else query})
                 
                 # Estimate tokens before making the API call
                 #system_template = system_prompt or db.get_system_prompt()
