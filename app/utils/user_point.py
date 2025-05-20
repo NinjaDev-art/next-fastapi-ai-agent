@@ -11,7 +11,7 @@ class UserPoint:
         self.user_doc = await db.get_user_by_email(email)
         return self
 
-    async def check_user_available_to_chat(self, estimated_points = 0.0):
+    async def check_user_available_to_chat(self, estimated_points = 0.0, ai_config = None):
         if not self.user_doc:
             return False
             
@@ -24,7 +24,7 @@ class UserPoint:
         
         usage_points = self.user_doc.get("pointsUsed", 0)
         available_points = self.user_doc.get("availablePoints", 0)
-        if usage_points + estimated_points >= available_points:
+        if ai_config.provider.lower() != "edith" and usage_points + estimated_points >= available_points:
             return False
         else:
             return True

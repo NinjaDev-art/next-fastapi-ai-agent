@@ -177,6 +177,8 @@ class ChatService:
             if not ai_config:
                 yield "Error: Invalid AI configuration"
                 return
+            
+            llm = self._get_llm(ai_config)
 
             if files:
                 print("Using RAG with files")
@@ -199,7 +201,7 @@ class ChatService:
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
                 print(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
                 
-                check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points)
+                check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points, ai_config)
                 if not check_user_available_to_chat:
                     error_response = {
                         "error": True,
@@ -213,9 +215,7 @@ class ChatService:
                     }
                     yield f"\n\n[ERROR]{error_response}"
                     return
-                
-                llm = self._get_llm(ai_config)
-                
+                                
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
                     *[HumanMessagePromptTemplate.from_template(msg["content"]) if msg["role"] == "user" 
@@ -264,7 +264,6 @@ class ChatService:
                 
             else:
                 print(f"Using direct {ai_config.provider} completion")
-                llm = self._get_llm(ai_config)
                 messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
                 messages.append({"role": "user", "content": learningPrompt if chatType == 1 else query})
                 
@@ -275,7 +274,7 @@ class ChatService:
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
                 print(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
                 
-                check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points)
+                check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points, ai_config)
                 if not check_user_available_to_chat:
                     error_response = {
                         "error": True,
@@ -409,10 +408,10 @@ class ChatService:
             print("ai_config", ai_config)
             if not ai_config:
                 return "Error: Invalid AI configuration"
+            llm = self._get_llm(ai_config, False)
 
             if files:
                 print("Using RAG with files")
-                llm = self._get_llm(ai_config, False)
                 vector_store = self._get_vector_store(files)
                 
                 # Get messages for token estimation
@@ -431,7 +430,7 @@ class ChatService:
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
                 print(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
                 
-                check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points)
+                check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points, ai_config)
                 if not check_user_available_to_chat:
                     error_response = {
                         "error": True,
@@ -475,7 +474,6 @@ class ChatService:
                 response = f"{full_response}\n\n[POINTS]{points}\n\n[OUTPUT_TIME]{outputTime}"
 
             else:
-                llm = self._get_llm(ai_config, False)
                 print(f"Using direct {ai_config.provider} completion")
                 messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
                 messages.append({"role": "user", "content": query})
@@ -485,7 +483,7 @@ class ChatService:
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
                 print(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
                 
-                check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points)
+                check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points, ai_config)
                 if not check_user_available_to_chat:
                     error_response = {
                         "error": True,
@@ -640,7 +638,7 @@ class ChatService:
             print(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
 
             # Check if user has enough points
-            check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points)
+            check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points, ai_config)
             if not check_user_available_to_chat:
                 error_response = {
                     "error": True,
@@ -847,7 +845,7 @@ class ChatService:
             print(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
 
             # Check if user has enough points
-            check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points)
+            check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points, ai_config)
             if not check_user_available_to_chat:
                 error_response = {
                     "error": True,
