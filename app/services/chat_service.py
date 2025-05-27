@@ -219,6 +219,8 @@ class ChatService:
         points = 0
         token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         outputTime = datetime.now()
+        reasoning_content = ""  # Add variable to accumulate reasoning content
+        has_started_reasoning = False  # Track if we've started collecting reasoning
 
         try:
             # Initialize user_point with email
@@ -240,7 +242,6 @@ class ChatService:
                 messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
                 messages.append({"role": "user", "content": query})
                 
-                # system_template = (system_prompt or db.get_system_prompt()) + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
                 system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
 
                 # Get relevant context from files for token estimation
@@ -300,8 +301,25 @@ class ChatService:
                             }
                             points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
                             logger.info(f"Token usage for RAG: {token_usage}, Cost: ${points:.6f}")
+                    elif event["event"] == "on_chat_model_stream":
+                        # Handle reasoning content at the model stream level
+                        if "reasoning_content" in event.get("data", {}).get("chunk", {}).get("additional_kwargs", {}):
+                            reasoning = event["data"]["chunk"]["additional_kwargs"]["reasoning_content"]
+                            if reasoning:
+                                if not has_started_reasoning:
+                                    reasoning_content = "<think>"
+                                    has_started_reasoning = True
+                                reasoning_content += reasoning
+                                continue
                     elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
                         try:
+                            # If we were collecting reasoning and now we're not, close the tag
+                            if has_started_reasoning:
+                                reasoning_content += "</think>"
+                                yield reasoning_content
+                                reasoning_content = ""
+                                has_started_reasoning = False
+
                             chunk = event["data"]["chunk"]
                             if chunk is None:
                                 continue
@@ -321,8 +339,6 @@ class ChatService:
                 messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
                 messages.append({"role": "user", "content": learningPrompt if chatType == 1 else query})
                 
-                # Estimate tokens before making the API call
-                #system_template = system_prompt or db.get_system_prompt()
                 system_template = system_prompt
                 estimated_tokens = self.estimate_total_tokens(messages, system_template, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model)
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
@@ -342,7 +358,6 @@ class ChatService:
                     }
                     yield f"\n\n[ERROR]{error_response}"
                     return
-                
                 
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
@@ -372,8 +387,25 @@ class ChatService:
                             }
                             points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
                             logger.info(f"Token usage for completion: {token_usage}, Cost: ${points:.6f}")
+                    elif event["event"] == "on_chat_model_stream":
+                        # Handle reasoning content at the model stream level
+                        if "reasoning_content" in event.get("data", {}).get("chunk", {}).get("additional_kwargs", {}):
+                            reasoning = event["data"]["chunk"]["additional_kwargs"]["reasoning_content"]
+                            if reasoning:
+                                if not has_started_reasoning:
+                                    reasoning_content = "<think>"
+                                    has_started_reasoning = True
+                                reasoning_content += reasoning
+                                continue
                     elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
                         try:
+                            # If we were collecting reasoning and now we're not, close the tag
+                            if has_started_reasoning:
+                                reasoning_content += "</think>"
+                                yield reasoning_content
+                                reasoning_content = ""
+                                has_started_reasoning = False
+
                             chunk = event["data"]["chunk"]
                             if chunk is None:
                                 continue
@@ -387,10 +419,6 @@ class ChatService:
                 
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
                 yield f"\n\n[POINTS]{points}"
-            
-            # # Remove vector store after stream is fully completed
-            # if files:
-            #     self.remove_vector_store()
             
             outputTime = (datetime.now() - outputTime).total_seconds()
             yield f"\n\n[OUTPUT_TIME]{outputTime}"
