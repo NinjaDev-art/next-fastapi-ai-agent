@@ -220,7 +220,6 @@ class ChatService:
         token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         outputTime = datetime.now()
         has_started_reasoning = False  # Track if we've started collecting reasoning
-        reasoning_buffer = ""  # Buffer to accumulate reasoning content
 
         try:
             # Initialize user_point with email
@@ -310,14 +309,13 @@ class ChatService:
                                 if not has_started_reasoning:
                                     yield "<think>"
                                     has_started_reasoning = True
-                                reasoning_buffer += reasoning
+                                yield reasoning
                                 continue
                     elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
                         try:
                             # If we were collecting reasoning and now we're getting actual content, close the think tag
                             if has_started_reasoning:
-                                yield reasoning_buffer + "</think>\n"
-                                reasoning_buffer = ""
+                                yield "</think>\n"
                                 has_started_reasoning = False
 
                             chunk = event["data"]["chunk"]
@@ -396,19 +394,16 @@ class ChatService:
                                 if not has_started_reasoning:
                                     yield "<think>"
                                     has_started_reasoning = True
-                                reasoning_buffer += reasoning
+                                yield reasoning
                                 continue
                     elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
                         try:
-                            # If we were collecting reasoning and now we're getting actual content, close the think tag
-                            if has_started_reasoning:
-                                yield reasoning_buffer + "</think>\n"
-                                reasoning_buffer = ""
-                                has_started_reasoning = False
-
                             chunk = event["data"]["chunk"]
                             if chunk is None:
                                 continue
+                            if has_started_reasoning:
+                                yield "</think>\n"
+                                has_started_reasoning = False
                             chunk_str = str(chunk) if not isinstance(chunk, str) else chunk
                             full_response += chunk_str
                             yield chunk_str
