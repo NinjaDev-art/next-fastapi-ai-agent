@@ -309,13 +309,14 @@ class ChatService:
                                 if not has_started_reasoning:
                                     yield "<think>"
                                     has_started_reasoning = True
-                                yield reasoning
+                                # Only yield the reasoning content, not the tags
+                                yield reasoning.strip()
                                 continue
                     elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
                         try:
                             # If we were collecting reasoning and now we're getting actual content, close the think tag
                             if has_started_reasoning:
-                                yield "</think>"
+                                yield "</think>\n"  # Add newline for better formatting
                                 has_started_reasoning = False
 
                             chunk = event["data"]["chunk"]
@@ -394,13 +395,14 @@ class ChatService:
                                 if not has_started_reasoning:
                                     yield "<think>"
                                     has_started_reasoning = True
-                                yield reasoning
+                                # Only yield the reasoning content, not the tags
+                                yield reasoning.strip()
                                 continue
                     elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
                         try:
                             # If we were collecting reasoning and now we're getting actual content, close the think tag
                             if has_started_reasoning:
-                                yield "</think>"
+                                yield "</think>\n"  # Add newline for better formatting
                                 has_started_reasoning = False
 
                             chunk = event["data"]["chunk"]
