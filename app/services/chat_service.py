@@ -220,6 +220,7 @@ class ChatService:
         token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         outputTime = datetime.now()
         has_started_reasoning = False  # Track if we've started collecting reasoning
+        reasoning_buffer = ""  # Buffer to accumulate reasoning content
 
         try:
             # Initialize user_point with email
@@ -309,14 +310,14 @@ class ChatService:
                                 if not has_started_reasoning:
                                     yield "<think>"
                                     has_started_reasoning = True
-                                # Only yield the reasoning content, not the tags
-                                yield reasoning.strip()
+                                reasoning_buffer += reasoning
                                 continue
                     elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
                         try:
                             # If we were collecting reasoning and now we're getting actual content, close the think tag
                             if has_started_reasoning:
-                                yield "</think>\n"  # Add newline for better formatting
+                                yield reasoning_buffer + "</think>\n"
+                                reasoning_buffer = ""
                                 has_started_reasoning = False
 
                             chunk = event["data"]["chunk"]
@@ -395,14 +396,14 @@ class ChatService:
                                 if not has_started_reasoning:
                                     yield "<think>"
                                     has_started_reasoning = True
-                                # Only yield the reasoning content, not the tags
-                                yield reasoning.strip()
+                                reasoning_buffer += reasoning
                                 continue
                     elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
                         try:
                             # If we were collecting reasoning and now we're getting actual content, close the think tag
                             if has_started_reasoning:
-                                yield "</think>\n"  # Add newline for better formatting
+                                yield reasoning_buffer + "</think>\n"
+                                reasoning_buffer = ""
                                 has_started_reasoning = False
 
                             chunk = event["data"]["chunk"]
