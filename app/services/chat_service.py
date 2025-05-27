@@ -309,7 +309,9 @@ class ChatService:
                                 if not has_started_reasoning:
                                     yield "<think>"
                                     has_started_reasoning = True
+                                    full_response += "<think>"
                                 yield reasoning
+                                full_response += reasoning
                                 continue
                     elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
                         try:
@@ -320,6 +322,7 @@ class ChatService:
                             if has_started_reasoning and chunk_str != "":
                                 yield "</think>\n"
                                 has_started_reasoning = False
+                                full_response += "</think>\n"
 
                             chunk_str = str(chunk) if not isinstance(chunk, str) else chunk
                             full_response += chunk_str
@@ -393,8 +396,10 @@ class ChatService:
                             if reasoning:
                                 if not has_started_reasoning:
                                     yield "<think>"
+                                    full_response += "<think>"
                                     has_started_reasoning = True
                                 yield reasoning
+                                full_response += reasoning
                                 continue
                     elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
                         try:
@@ -404,6 +409,7 @@ class ChatService:
                             chunk_str = str(chunk) if not isinstance(chunk, str) else chunk
                             if has_started_reasoning and chunk_str != "":
                                 yield "</think>\n"
+                                full_response += "</think>\n"
                                 has_started_reasoning = False
                             full_response += chunk_str
                             yield chunk_str
