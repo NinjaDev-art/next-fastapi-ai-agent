@@ -313,14 +313,14 @@ class ChatService:
                                 continue
                     elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
                         try:
-                            # If we were collecting reasoning and now we're getting actual content, close the think tag
-                            if has_started_reasoning:
-                                yield "</think>\n"
-                                has_started_reasoning = False
-
                             chunk = event["data"]["chunk"]
                             if chunk is None:
                                 continue
+                            # If we were collecting reasoning and now we're getting actual content, close the think tag
+                            if has_started_reasoning and chunk_str != "":
+                                yield "</think>\n"
+                                has_started_reasoning = False
+
                             chunk_str = str(chunk) if not isinstance(chunk, str) else chunk
                             full_response += chunk_str
                             yield chunk_str
@@ -401,10 +401,10 @@ class ChatService:
                             chunk = event["data"]["chunk"]
                             if chunk is None:
                                 continue
-                            if has_started_reasoning:
+                            chunk_str = str(chunk) if not isinstance(chunk, str) else chunk
+                            if has_started_reasoning and chunk_str != "":
                                 yield "</think>\n"
                                 has_started_reasoning = False
-                            chunk_str = str(chunk) if not isinstance(chunk, str) else chunk
                             full_response += chunk_str
                             yield chunk_str
                         except Exception as e:
