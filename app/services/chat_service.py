@@ -272,7 +272,7 @@ class ChatService:
                     SystemMessagePromptTemplate.from_template(system_template),
                     *[HumanMessagePromptTemplate.from_template(msg["content"]) if msg["role"] == "user" 
                       else AIMessagePromptTemplate.from_template(msg["content"]) 
-                      for msg in messages[:-1]],  # Include all messages except the last one
+                      for msg in messages[:-1] if msg["content"]],  # Only include non-empty messages
                     HumanMessagePromptTemplate.from_template("{question}")  # Last message is the current question
                 ])
                 
@@ -346,7 +346,7 @@ class ChatService:
                     SystemMessagePromptTemplate.from_template(system_template),
                     *[HumanMessagePromptTemplate.from_template(msg["content"]) if msg["role"] == "user" 
                       else AIMessagePromptTemplate.from_template(msg["content"]) 
-                      for msg in messages[:-1]],  # Include all messages except the last one
+                      for msg in messages[:-1] if msg["content"]],  # Only include non-empty messages
                     HumanMessagePromptTemplate.from_template("{question}")  # Last message is the current question
                 ])
                 
@@ -501,7 +501,7 @@ class ChatService:
                     SystemMessagePromptTemplate.from_template(system_template),
                     *[HumanMessagePromptTemplate.from_template(msg["content"]) if msg["role"] == "user" 
                       else AIMessagePromptTemplate.from_template(msg["content"]) 
-                      for msg in messages[:-1]],  # Include all messages except the last one
+                      for msg in messages[:-1] if msg["content"]],  # Only include non-empty messages
                     HumanMessagePromptTemplate.from_template("{question}")  # Last message is the current question
                 ])
                 
@@ -554,7 +554,7 @@ class ChatService:
                     SystemMessagePromptTemplate.from_template(system_template),
                     *[HumanMessagePromptTemplate.from_template(msg["content"]) if msg["role"] == "user" 
                       else AIMessagePromptTemplate.from_template(msg["content"]) 
-                      for msg in messages[:-1]],  # Include all messages except the last one
+                      for msg in messages[:-1] if msg["content"]],  # Only include non-empty messages
                     HumanMessagePromptTemplate.from_template("{question}")  # Last message is the current question
                 ])
                 
