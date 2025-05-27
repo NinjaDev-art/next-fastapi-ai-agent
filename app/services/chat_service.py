@@ -303,8 +303,9 @@ class ChatService:
                             logger.info(f"Token usage for RAG: {token_usage}, Cost: ${points:.6f}")
                     elif event["event"] == "on_chat_model_stream":
                         # Handle reasoning content at the model stream level
-                        if "reasoning_content" in event.get("data", {}).get("chunk", {}).get("additional_kwargs", {}):
-                            reasoning = event["data"]["chunk"]["additional_kwargs"]["reasoning_content"]
+                        chunk = event["data"]["chunk"]
+                        if hasattr(chunk, "additional_kwargs") and "reasoning_content" in chunk.additional_kwargs:
+                            reasoning = chunk.additional_kwargs["reasoning_content"]
                             if reasoning:
                                 if not has_started_reasoning:
                                     reasoning_content = "<think>"
@@ -389,8 +390,9 @@ class ChatService:
                             logger.info(f"Token usage for completion: {token_usage}, Cost: ${points:.6f}")
                     elif event["event"] == "on_chat_model_stream":
                         # Handle reasoning content at the model stream level
-                        if "reasoning_content" in event.get("data", {}).get("chunk", {}).get("additional_kwargs", {}):
-                            reasoning = event["data"]["chunk"]["additional_kwargs"]["reasoning_content"]
+                        chunk = event["data"]["chunk"]
+                        if hasattr(chunk, "additional_kwargs") and "reasoning_content" in chunk.additional_kwargs:
+                            reasoning = chunk.additional_kwargs["reasoning_content"]
                             if reasoning:
                                 if not has_started_reasoning:
                                     reasoning_content = "<think>"
