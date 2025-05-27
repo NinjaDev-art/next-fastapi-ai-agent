@@ -288,6 +288,8 @@ class ChatService:
                 )
                 
                 async for event in rag_chain.astream_events(query):
+                    logger.info(f"Event stream: {event}")
+                    
                     if event["event"] == "on_chat_model_end":
                         usage = event["data"]["output"].usage_metadata
                         if usage:
@@ -358,7 +360,8 @@ class ChatService:
                 )
                 
                 async for event in chain.astream_events(query):
-                    print(event)
+                    logger.info(f"Event stream: {event}")
+                    
                     if event["event"] == "on_chat_model_end":
                         usage = event["data"]["output"].usage_metadata
                         if usage:

@@ -2,8 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .config.settings import settings
 from .api.chat import router as chat_router
+from .config.logging_config import setup_logging
 import logging
 
+# Setup logging first
+setup_logging()
 logger = logging.getLogger(__name__)
 
 # Verify environment variables
