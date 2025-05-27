@@ -55,11 +55,35 @@ class ChatService:
         if provider.lower() != "anthropic":
             messages.append({"role": "system", "content": system_prompt})
             
-        for chat in chat_history:
-            if chat.prompt:
-                messages.append({"role": "user", "content": chat.prompt})
-            if chat.response:
-                messages.append({"role": "assistant", "content": chat.response})
+        # For DeepSeek, ensure first message is from user
+        if provider.lower() == "deepseek":
+            # Find first user message
+            first_user_msg = None
+            for chat in chat_history:
+                if chat.prompt:
+                    first_user_msg = chat
+                    break
+            
+            # If we found a user message, add it first
+            if first_user_msg:
+                messages.append({"role": "user", "content": first_user_msg.prompt})
+                if first_user_msg.response:
+                    messages.append({"role": "assistant", "content": first_user_msg.response})
+            
+            # Add remaining messages
+            for chat in chat_history:
+                if chat != first_user_msg:  # Skip the first user message as we already added it
+                    if chat.prompt:
+                        messages.append({"role": "user", "content": chat.prompt})
+                    if chat.response:
+                        messages.append({"role": "assistant", "content": chat.response})
+        else:
+            # Original behavior for other providers
+            for chat in chat_history:
+                if chat.prompt:
+                    messages.append({"role": "user", "content": chat.prompt})
+                if chat.response:
+                    messages.append({"role": "assistant", "content": chat.response})
                 
         return messages, system_prompt
 
@@ -87,8 +111,8 @@ class ChatService:
                 callbacks=[StreamingStdOutCallbackHandler()],
                 model=ai_config.model,
                 max_tokens=2000,
-                deepseek_api_key=settings.DEEPSEEK_API_KEY,
-                stream_usage=isStream
+                api_key=settings.DEEPSEEK_API_KEY,
+                stream_usage=isStream,
             )
         elif ai_config.provider.lower() == "google":
             return ChatGoogleGenerativeAI(
@@ -148,7 +172,7 @@ class ChatService:
                 max_tokens=2000,
                 openai_api_key=settings.OPENROUTER_API_KEY,
                 stream_usage=isStream,
-                openai_base_url="https://openrouter.ai/api/v1"
+                base_url="https://openrouter.ai/api/v1"
             )
         else:  # Default to OpenAI
             return ChatOpenAI(
@@ -316,6 +340,7 @@ class ChatService:
                 )
                 
                 async for event in chain.astream_events(query):
+                    print(event)
                     if event["event"] == "on_chat_model_end":
                         usage = event["data"]["output"].usage_metadata
                         if usage:
