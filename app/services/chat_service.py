@@ -51,32 +51,47 @@ class ChatService:
         system_prompt = "" if provider != "edith" else db.get_system_prompt()
         messages = []
         
+        logger.info(f"Processing chat history for provider: {provider}")
+        logger.info(f"Chat history length: {len(chat_history)}")
+        
         # For Anthropic, we don't include system message in the messages array
         if provider.lower() != "anthropic":
             messages.append({"role": "system", "content": system_prompt})
+            logger.info("Added system message")
             
         # For DeepSeek, ensure first message is from user
         if provider.lower() == "deepseek":
-            # Find first user message
-            first_user_msg = None
-            for chat in chat_history:
+            # First, filter out any empty or invalid messages
+            valid_history = [chat for chat in chat_history if chat.prompt or chat.response]
+            logger.info(f"Valid history length: {len(valid_history)}")
+            
+            if not valid_history:
+                logger.warning("No valid messages in chat history")
+                return messages, system_prompt
+                
+            # Ensure we start with a user message
+            first_chat = valid_history[0]
+            if not first_chat.prompt:
+                logger.warning("First message is not a user message, skipping chat history")
+                return messages, system_prompt
+                
+            # Add the first user message
+            messages.append({"role": "user", "content": first_chat.prompt})
+            logger.info("Added first user message")
+            
+            # Add its response if it exists
+            if first_chat.response:
+                messages.append({"role": "assistant", "content": first_chat.response})
+                logger.info("Added first assistant response")
+            
+            # Add remaining messages in pairs
+            for chat in valid_history[1:]:
                 if chat.prompt:
-                    first_user_msg = chat
-                    break
-            
-            # If we found a user message, add it first
-            if first_user_msg:
-                messages.append({"role": "user", "content": first_user_msg.prompt})
-                if first_user_msg.response:
-                    messages.append({"role": "assistant", "content": first_user_msg.response})
-            
-            # Add remaining messages
-            for chat in chat_history:
-                if chat != first_user_msg:  # Skip the first user message as we already added it
-                    if chat.prompt:
-                        messages.append({"role": "user", "content": chat.prompt})
-                    if chat.response:
-                        messages.append({"role": "assistant", "content": chat.response})
+                    messages.append({"role": "user", "content": chat.prompt})
+                    logger.info("Added user message")
+                if chat.response:
+                    messages.append({"role": "assistant", "content": chat.response})
+                    logger.info("Added assistant response")
         else:
             # Original behavior for other providers
             for chat in chat_history:
@@ -84,7 +99,10 @@ class ChatService:
                     messages.append({"role": "user", "content": chat.prompt})
                 if chat.response:
                     messages.append({"role": "assistant", "content": chat.response})
-                
+        
+        logger.info(f"Final messages count: {len(messages)}")
+        logger.info(f"Message roles: {[msg['role'] for msg in messages]}")
+        
         return messages, system_prompt
 
     def get_points(self, inputToken: int, outputToken: int, ai_config: AiConfig) -> float:
