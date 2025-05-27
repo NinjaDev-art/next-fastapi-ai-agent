@@ -23,6 +23,9 @@ class Settings(BaseSettings):
 
     # Cerebras settings
     CEREBRAS_API_KEY: Optional[str] = os.getenv("CEREBRAS_API_KEY")
+
+    # Openrouter settings
+    OPENROUTER_API_KEY: Optional[str] = os.getenv("OPENROUTER_API_KEY")
     
     # Hugging Face settings
     HUGGINGFACE_API_KEY: Optional[str] = os.getenv("HUGGINGFACE_API_KEY")

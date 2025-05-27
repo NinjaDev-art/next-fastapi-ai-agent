@@ -140,6 +140,16 @@ class ChatService:
                 cerebras_api_key=settings.CEREBRAS_API_KEY,
                 stream_usage=isStream
             )
+        elif ai_config.provider.lower() == "openrouter":
+            return ChatOpenAI(
+                streaming=isStream,
+                callbacks=[StreamingStdOutCallbackHandler()],
+                model=ai_config.model,
+                max_tokens=2000,
+                openai_api_key=settings.OPENROUTER_API_KEY,
+                stream_usage=isStream,
+                openai_base_url="https://openrouter.ai/api/v1"
+            )
         else:  # Default to OpenAI
             return ChatOpenAI(
                 streaming=isStream,
