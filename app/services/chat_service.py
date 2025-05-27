@@ -219,7 +219,6 @@ class ChatService:
         points = 0
         token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         outputTime = datetime.now()
-        reasoning_content = ""  # Add variable to accumulate reasoning content
         has_started_reasoning = False  # Track if we've started collecting reasoning
 
         try:
@@ -308,17 +307,15 @@ class ChatService:
                             reasoning = chunk.additional_kwargs["reasoning_content"]
                             if reasoning:
                                 if not has_started_reasoning:
-                                    reasoning_content = "<think>"
+                                    yield "<think>"
                                     has_started_reasoning = True
-                                reasoning_content += reasoning
+                                yield reasoning
                                 continue
                     elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
                         try:
-                            # If we were collecting reasoning and now we're not, close the tag
+                            # If we were collecting reasoning and now we're getting actual content, close the think tag
                             if has_started_reasoning:
-                                reasoning_content += "</think>"
-                                yield reasoning_content
-                                reasoning_content = ""
+                                yield "</think>"
                                 has_started_reasoning = False
 
                             chunk = event["data"]["chunk"]
@@ -395,17 +392,15 @@ class ChatService:
                             reasoning = chunk.additional_kwargs["reasoning_content"]
                             if reasoning:
                                 if not has_started_reasoning:
-                                    reasoning_content = "<think>"
+                                    yield "<think>"
                                     has_started_reasoning = True
-                                reasoning_content += reasoning
+                                yield reasoning
                                 continue
                     elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
                         try:
-                            # If we were collecting reasoning and now we're not, close the tag
+                            # If we were collecting reasoning and now we're getting actual content, close the think tag
                             if has_started_reasoning:
-                                reasoning_content += "</think>"
-                                yield reasoning_content
-                                reasoning_content = ""
+                                yield "</think>"
                                 has_started_reasoning = False
 
                             chunk = event["data"]["chunk"]
