@@ -83,7 +83,8 @@ class Database:
                     outputCost=ai_doc["outputCost"],
                     multiplier=ai_doc["multiplier"],
                     model=ai_doc["model"],
-                    provider=ai_doc["provider"]
+                    provider=ai_doc["provider"],
+                    imageSupport=ai_doc["imageSupport"]
                 )
             else:
                 logger.warning(f"No AI config found for ID: {ai_id}")

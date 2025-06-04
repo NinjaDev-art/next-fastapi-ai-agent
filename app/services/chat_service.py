@@ -235,18 +235,29 @@ class ChatService:
 
             if files:
                 print("Using RAG with files")
-                vector_store = self._get_vector_store(files)
+                image_files, text_files = file_processor.identify_files(files)
+                vector_store = self._get_vector_store(text_files) if text_files else None
                 
                 # Get messages for token estimation
                 messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
-                messages.append({"role": "user", "content": query})
                 
-                system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
+                # Handle multimodal input (text + images)
+                if ai_config.imageSupport and image_files:
+                    multimodal_message = self.create_multimodal_message(query, image_files, ai_config.provider)
+                    messages.append(multimodal_message)
+                else:
+                    messages.append({"role": "user", "content": query})
 
-                # Get relevant context from files for token estimation
-                retriever = vector_store.as_retriever()
-                docs = retriever.get_relevant_documents(query)
-                context = "\n".join([doc.page_content for doc in docs])
+                if vector_store:
+                    system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
+                    
+                    # Get relevant context from files for token estimation
+                    retriever = vector_store.as_retriever()
+                    docs = retriever.get_relevant_documents(query)
+                    context = "\n".join([doc.page_content for doc in docs])
+                else:
+                    system_template = system_prompt
+                    context = ""
                 
                 # Estimate tokens before making the API call
                 estimated_tokens = self.estimate_total_tokens(messages, system_template, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model, context)
@@ -270,9 +281,9 @@ class ChatService:
                                 
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
-                    *[HumanMessagePromptTemplate.from_template(msg["content"]) if msg["role"] == "user" 
+                    *[HumanMessagePromptTemplate.from_template(self._extract_text_content(msg["content"])) if msg["role"] == "user" 
                       else AIMessagePromptTemplate.from_template(msg["content"]) 
-                      for msg in messages[:-1] if msg["content"]],  # Only include non-empty messages
+                      for msg in messages[:-1] if self._has_content(msg)],  # Only include messages with content
                     HumanMessagePromptTemplate.from_template("{question}")  # Last message is the current question
                 ])
                 
@@ -362,9 +373,9 @@ class ChatService:
                 
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
-                    *[HumanMessagePromptTemplate.from_template(msg["content"]) if msg["role"] == "user" 
+                    *[HumanMessagePromptTemplate.from_template(self._extract_text_content(msg["content"])) if msg["role"] == "user" 
                       else AIMessagePromptTemplate.from_template(msg["content"]) 
-                      for msg in messages[:-1] if msg["content"]],  # Only include non-empty messages
+                      for msg in messages[:-1] if self._has_content(msg)],  # Only include messages with content
                     HumanMessagePromptTemplate.from_template("{question}")  # Last message is the current question
                 ])
                 
@@ -497,18 +508,29 @@ class ChatService:
 
             if files:
                 print("Using RAG with files")
-                vector_store = self._get_vector_store(files)
+                image_files, text_files = file_processor.identify_files(files)
+                vector_store = self._get_vector_store(text_files) if text_files else None
                 
                 # Get messages for token estimation
                 messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
-                messages.append({"role": "user", "content": query})
                 
-                system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
+                # Handle multimodal input (text + images)
+                if ai_config.imageSupport and image_files:
+                    multimodal_message = self.create_multimodal_message(query, image_files, ai_config.provider)
+                    messages.append(multimodal_message)
+                else:
+                    messages.append({"role": "user", "content": query})
+                
+                if vector_store:
+                    system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
 
-                # Get relevant context from files for token estimation
-                retriever = vector_store.as_retriever()
-                docs = retriever.get_relevant_documents(query)
-                context = "\n".join([doc.page_content for doc in docs])
+                    # Get relevant context from files for token estimation
+                    retriever = vector_store.as_retriever()
+                    docs = retriever.get_relevant_documents(query)
+                    context = "\n".join([doc.page_content for doc in docs])
+                else:
+                    system_template = system_prompt
+                    context = ""
                 
                 # Estimate tokens before making the API call
                 estimated_tokens = self.estimate_total_tokens(messages, system_template, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model, context)
@@ -531,9 +553,9 @@ class ChatService:
                 
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
-                    *[HumanMessagePromptTemplate.from_template(msg["content"]) if msg["role"] == "user" 
+                    *[HumanMessagePromptTemplate.from_template(self._extract_text_content(msg["content"])) if msg["role"] == "user" 
                       else AIMessagePromptTemplate.from_template(msg["content"]) 
-                      for msg in messages[:-1] if msg["content"]],  # Only include non-empty messages
+                      for msg in messages[:-1] if self._has_content(msg)],  # Only include messages with content
                     HumanMessagePromptTemplate.from_template("{question}")  # Last message is the current question
                 ])
                 
@@ -584,9 +606,9 @@ class ChatService:
                 
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
-                    *[HumanMessagePromptTemplate.from_template(msg["content"]) if msg["role"] == "user" 
+                    *[HumanMessagePromptTemplate.from_template(self._extract_text_content(msg["content"])) if msg["role"] == "user" 
                       else AIMessagePromptTemplate.from_template(msg["content"]) 
-                      for msg in messages[:-1] if msg["content"]],  # Only include non-empty messages
+                      for msg in messages[:-1] if self._has_content(msg)],  # Only include messages with content
                     HumanMessagePromptTemplate.from_template("{question}")  # Last message is the current question
                 ])
                 
@@ -703,18 +725,31 @@ class ChatService:
             
             # Get messages for token estimation
             messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
-            messages.append({"role": "user", "content": query})
+            
             # Process files if they exist
             if files:
                 print("Using RAG with files")
-                vector_store = self._get_vector_store(files)
-                # Get relevant context from files
-                retriever = vector_store.as_retriever()
-                docs = retriever.get_relevant_documents(query)
-                context = "\n".join([doc.page_content for doc in docs])
-                # Enhance the prompt with context
-                enhanced_query = f"Context from files:\n{context}\n\nGenerate image based on this context and the following description: {query}"
+                image_files, text_files = file_processor.identify_files(files)
+                vector_store = self._get_vector_store(text_files) if text_files else None
+                
+                # Handle multimodal input (text + images) for context
+                if ai_config.imageSupport and image_files:
+                    multimodal_message = self.create_multimodal_message(query, image_files, ai_config.provider)
+                    messages.append(multimodal_message)
+                else:
+                    messages.append({"role": "user", "content": query})
+                
+                if vector_store:
+                    # Get relevant context from files
+                    retriever = vector_store.as_retriever()
+                    docs = retriever.get_relevant_documents(query)
+                    context = "\n".join([doc.page_content for doc in docs])
+                    # Enhance the prompt with context
+                    enhanced_query = f"Context from files:\n{context}\n\nGenerate image based on this context and the following description: {query}"
+                else:
+                    enhanced_query = query
             else:
+                messages.append({"role": "user", "content": query})
                 enhanced_query = query
 
             # Estimate tokens for the prompt
@@ -836,7 +871,7 @@ class ChatService:
 
             await db.save_usage_log({
                 "date": datetime.now(),
-                "userId": user_point.user_doc.get("userId", None),
+                "userId": user_point.user_doc.get("_id", None),
                 "modelId": model,
                 "planId": user_point.user_doc.get("currentplan", "680f11c0d44970f933ae5e54"),
                 "stats": {
@@ -909,19 +944,31 @@ class ChatService:
 
             # Get messages for token estimation
             messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
-            messages.append({"role": "user", "content": query})
 
             # Process files if they exist
             if files:
                 print("Using RAG with files")
-                vector_store = self._get_vector_store(files)
-                # Get relevant context from files
-                retriever = vector_store.as_retriever()
-                docs = retriever.get_relevant_documents(query)
-                context = "\n".join([doc.page_content for doc in docs])
-                # Enhance the prompt with context
-                enhanced_query = f"Context from files:\n{context}\n\nGenerate audio based on this context and the following text: {query}"
+                image_files, text_files = file_processor.identify_files(files)
+                vector_store = self._get_vector_store(text_files) if text_files else None
+                
+                # Handle multimodal input (text + images) for context
+                if ai_config.imageSupport and image_files:
+                    multimodal_message = self.create_multimodal_message(query, image_files, ai_config.provider)
+                    messages.append(multimodal_message)
+                else:
+                    messages.append({"role": "user", "content": query})
+                
+                if vector_store:
+                    # Get relevant context from files
+                    retriever = vector_store.as_retriever()
+                    docs = retriever.get_relevant_documents(query)
+                    context = "\n".join([doc.page_content for doc in docs])
+                    # Enhance the prompt with context
+                    enhanced_query = f"Context from files:\n{context}\n\nGenerate audio based on this context and the following text: {query}"
+                else:
+                    enhanced_query = query
             else:
+                messages.append({"role": "user", "content": query})
                 enhanced_query = query
 
             # Estimate tokens for audio generation
@@ -1190,16 +1237,50 @@ class ChatService:
     def estimate_tokens(self, messages: List[dict], model: str) -> int:
         """
         Estimate the number of tokens for a list of messages.
-        This follows OpenAI's token counting rules for chat completions.
+        This follows OpenAI's token counting rules for chat completions and includes vision tokens.
         """
         encoding = self._get_encoding(model)
         num_tokens = 0
+        
         for message in messages:
             num_tokens += 4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
+            
             for key, value in message.items():
-                num_tokens += len(encoding.encode(value))
+                if key == "content":
+                    if isinstance(value, str):
+                        # Regular text content
+                        num_tokens += len(encoding.encode(value))
+                    elif isinstance(value, list):
+                        # Multimodal content
+                        for content_item in value:
+                            if isinstance(content_item, dict):
+                                if content_item.get("type") == "text":
+                                    text = content_item.get("text", "")
+                                    num_tokens += len(encoding.encode(text))
+                                elif content_item.get("type") == "image_url":
+                                    # Estimate vision tokens
+                                    # OpenAI vision models use approximately 85-170 tokens per image
+                                    # depending on detail level and image size
+                                    detail = content_item.get("image_url", {}).get("detail", "auto")
+                                    if detail == "low":
+                                        num_tokens += 85
+                                    else:  # high or auto
+                                        num_tokens += 170
+                                elif content_item.get("type") == "image":
+                                    # Anthropic/Google image format
+                                    num_tokens += 170  # Conservative estimate
+                    elif isinstance(value, dict):
+                        # Single content object
+                        if "text" in value:
+                            num_tokens += len(encoding.encode(value["text"]))
+                else:
+                    # Other message fields (role, name, etc.)
+                    if isinstance(value, str):
+                        num_tokens += len(encoding.encode(value))
+                        
                 if key == "name":  # if there's a name, the role is omitted
                     num_tokens += -1  # role is always required and always 1 token
+                    
         num_tokens += 2  # every reply is primed with <im_start>assistant
         return num_tokens
 
@@ -1237,5 +1318,229 @@ class ChatService:
         except Exception as e:
             logger.error(f"Error estimating total tokens: {str(e)}")
             raise
+
+    def indentify_files(self, files: List[str]) -> List[str]:
+        """
+        Identify the type of files and return the image files and the text files.
+        """
+        return file_processor.identify_files(files)
+
+    def format_image_content(self, image_files: List[str], provider: str) -> List[dict]:
+        """
+        Format image files for different AI providers.
+        Returns a list of content objects that can be added to messages.
+        """
+        formatted_content = []
+        
+        for image_url in image_files:
+            if provider.lower() == "openai":
+                # OpenAI format for vision models
+                formatted_content.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": image_url if image_url.startswith('http') else f"{settings.AWS_CDN_URL}/{image_url}",
+                        "detail": "high"  # Can be "low", "high", or "auto"
+                    }
+                })
+            elif provider.lower() == "anthropic":
+                # Anthropic Claude format for vision
+                # Note: Anthropic requires base64 encoded images
+                try:
+                    import requests
+                    import base64
+                    
+                    # Download the image
+                    full_url = image_url if image_url.startswith('http') else f"{settings.AWS_CDN_URL}/{image_url}"
+                    response = requests.get(full_url)
+                    response.raise_for_status()
+                    
+                    # Convert to base64
+                    image_base64 = base64.b64encode(response.content).decode('utf-8')
+                    
+                    # Determine media type
+                    if image_url.lower().endswith('.png'):
+                        media_type = "image/png"
+                    elif image_url.lower().endswith(('.jpg', '.jpeg')):
+                        media_type = "image/jpeg"
+                    elif image_url.lower().endswith('.gif'):
+                        media_type = "image/gif"
+                    elif image_url.lower().endswith('.webp'):
+                        media_type = "image/webp"
+                    else:
+                        media_type = "image/jpeg"  # Default fallback
+                    
+                    formatted_content.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": image_base64
+                        }
+                    })
+                except Exception as e:
+                    logger.error(f"Error processing image for Anthropic: {str(e)}")
+                    continue
+            elif provider.lower() == "google":
+                # Google Gemini format
+                try:
+                    import requests
+                    import base64
+                    
+                    # Download the image
+                    full_url = image_url if image_url.startswith('http') else f"{settings.AWS_CDN_URL}/{image_url}"
+                    response = requests.get(full_url)
+                    response.raise_for_status()
+                    
+                    # Convert to base64
+                    image_base64 = base64.b64encode(response.content).decode('utf-8')
+                    
+                    # Determine mime type
+                    if image_url.lower().endswith('.png'):
+                        mime_type = "image/png"
+                    elif image_url.lower().endswith(('.jpg', '.jpeg')):
+                        mime_type = "image/jpeg"
+                    elif image_url.lower().endswith('.gif'):
+                        mime_type = "image/gif"
+                    elif image_url.lower().endswith('.webp'):
+                        mime_type = "image/webp"
+                    else:
+                        mime_type = "image/jpeg"  # Default fallback
+                    
+                    formatted_content.append({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{mime_type};base64,{image_base64}"
+                        }
+                    })
+                except Exception as e:
+                    logger.error(f"Error processing image for Google: {str(e)}")
+                    continue
+            else:
+                # Default format (similar to OpenAI)
+                formatted_content.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": image_url if image_url.startswith('http') else f"{settings.AWS_CDN_URL}/{image_url}",
+                        "detail": "high"
+                    }
+                })
+        
+        return formatted_content
+
+    def create_multimodal_message(self, text_content: str, image_files: List[str], provider: str) -> dict:
+        """
+        Create a multimodal message with both text and images.
+        """
+        if not image_files:
+            return {"role": "user", "content": text_content}
+        
+        if provider.lower() == "openai":
+            # OpenAI multimodal format
+            content = [
+                {"type": "text", "text": text_content}
+            ]
+            content.extend(self.format_image_content(image_files, provider))
+            return {"role": "user", "content": content}
+        
+        elif provider.lower() == "anthropic":
+            # Anthropic multimodal format
+            content = [
+                {"type": "text", "text": text_content}
+            ]
+            content.extend(self.format_image_content(image_files, provider))
+            return {"role": "user", "content": content}
+        
+        elif provider.lower() == "google":
+            # Google Gemini multimodal format
+            content = [
+                {"type": "text", "text": text_content}
+            ]
+            content.extend(self.format_image_content(image_files, provider))
+            return {"role": "user", "content": content}
+        
+        elif provider.lower() == "openrouter":
+            # OpenRouter multimodal format
+            content = [
+                {"type": "text", "text": text_content}
+            ]
+            content.extend(self.format_image_content(image_files, provider))
+            return {"role": "user", "content": content}
+        
+        else:
+            # For providers that don't support vision, just return text
+            logger.warning(f"Provider {provider} doesn't support vision. Images will be ignored.")
+            return {"role": "user", "content": text_content}
+
+    def _extract_text_content(self, content):
+        """Extract text content from message content, handling both string and multimodal formats."""
+        if isinstance(content, str):
+            return content
+        elif isinstance(content, list):
+            # Multimodal content - find text parts
+            text_parts = []
+            for item in content:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    text_parts.append(item.get("text", ""))
+            return " ".join(text_parts)
+        elif isinstance(content, dict) and "text" in content:
+            return content["text"]
+        else:
+            logger.warning(f"Unsupported content format: {type(content)}")
+            return ""
+
+    def _has_content(self, message):
+        """Check if a message has content."""
+        if not isinstance(message, dict):
+            return False
+        
+        content = message.get("content")
+        if not content:
+            return False
+            
+        if isinstance(content, str):
+            return bool(content.strip())
+        elif isinstance(content, list):
+            # Check if any item in the list has meaningful content
+            return any(
+                (isinstance(item, dict) and item.get("text", "").strip()) or
+                (isinstance(item, dict) and item.get("type") in ["image_url", "image"])
+                for item in content
+            )
+        elif isinstance(content, dict):
+            return bool(content.get("text", "").strip())
+        
+        return False
+
+    def get_supported_image_info(self) -> dict:
+        """
+        Returns information about supported image formats and usage guidelines.
+        """
+        return {
+            "supported_formats": [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".ico", ".webp"],
+            "max_file_size": "20MB (recommended)",
+            "usage_guidelines": {
+                "openai": {
+                    "description": "Supports vision with GPT-4V and GPT-4o models",
+                    "detail_levels": ["low", "high", "auto"],
+                    "token_cost": "85 tokens (low detail) to 170 tokens (high detail) per image"
+                },
+                "anthropic": {
+                    "description": "Supports vision with Claude 3 models",
+                    "formats": ["base64 encoded images"],
+                    "token_cost": "~170 tokens per image (estimated)"
+                },
+                "google": {
+                    "description": "Supports vision with Gemini models",
+                    "formats": ["base64 encoded images"],
+                    "token_cost": "~170 tokens per image (estimated)"
+                }
+            },
+            "tips": [
+                "Images are automatically detected by file extension",
+                "High-resolution images provide better analysis but cost more tokens",
+                "Combine images with text prompts for best results",
+                "Multiple images can be processed in a single request"
+            ]
+        }
 
 chat_service = ChatService() 

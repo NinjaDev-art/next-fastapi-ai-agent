@@ -117,5 +117,19 @@ class FileProcessor:
                 logger.error(f"Error processing file {file_url}: {str(e)}")
                 raise
         return all_text
+    
+    def identify_files(self, files: List[str]) -> List[str]:
+        """
+        Identify the type of files and return the image files and the text files.
+        """
+        image_files = []
+        text_files = []
+        for file_url in files:
+            file_extension = Path(file_url).suffix.lower()
+            if file_extension in ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.ico', '.webp']:
+                image_files.append(file_url)
+            else:
+                text_files.append(file_url)
+        return image_files, text_files
 
 file_processor = FileProcessor() 

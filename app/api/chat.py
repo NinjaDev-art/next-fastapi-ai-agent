@@ -103,3 +103,20 @@ async def chat_generate_image(request: ChatRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) 
 
+@router.get("/chat/image-support-info")
+async def get_image_support_info():
+    """
+    Get information about supported image formats and usage guidelines.
+    """
+    try:
+        info = chat_service.get_supported_image_info()
+        return JSONResponse(
+            content={
+                "status": 200,
+                "message": "Success",
+                "data": info
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+

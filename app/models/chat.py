@@ -24,3 +24,4 @@ class AiConfig(BaseModel):
     multiplier: float
     model: str
     provider: str 
+    imageSupport: bool = False
