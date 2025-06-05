@@ -279,19 +279,23 @@ class ChatService:
                     yield f"\n\n[ERROR]{error_response}"
                     return
                                 
+                # Create current question message that preserves multimodal content
+                current_question_msg = None
+                if ai_config.imageSupport and image_files:
+                    current_question_msg = self.create_multimodal_message(query, image_files, ai_config.provider)
+                else:
+                    current_question_msg = {"role": "user", "content": query}
+                
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
-                    *[HumanMessagePromptTemplate.from_template(self._extract_text_content(msg["content"])) if msg["role"] == "user" 
-                      else AIMessagePromptTemplate.from_template(msg["content"]) 
-                      for msg in messages[:-1] if self._has_content(msg)],  # Only include messages with content
-                    HumanMessagePromptTemplate.from_template("{question}")  # Last message is the current question
+                    *[self._create_message_template(msg) for msg in messages[:-1] if self._has_content(msg)],  # Chat history
+                    self._create_message_template(current_question_msg)  # Current question with images
                 ])
 
                 if vector_store: 
                     rag_chain = (
                         {
                             "context": vector_store.as_retriever(),
-                            "question": RunnablePassthrough(),
                             "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
                         }
                         | prompt
@@ -302,7 +306,6 @@ class ChatService:
                 else:
                     rag_chain = (
                         {
-                            "question": RunnablePassthrough(),
                             "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
                         }
                         | prompt
@@ -310,7 +313,7 @@ class ChatService:
                         | StrOutputParser()
                     )
                 
-                async for event in rag_chain.astream_events(query):
+                async for event in rag_chain.astream_events({}):
                     logger.info(f"Event stream: {event}")
                     
                     if event["event"] == "on_chat_model_end":
@@ -383,22 +386,27 @@ class ChatService:
                     yield f"\n\n[ERROR]{error_response}"
                     return
                 
+                # Create current question message that preserves multimodal content
+                current_question_msg = None
+                if ai_config.imageSupport and image_files:
+                    current_question_msg = self.create_multimodal_message(query, image_files, ai_config.provider)
+                else:
+                    current_question_msg = {"role": "user", "content": query}
+                
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
-                    *[HumanMessagePromptTemplate.from_template(self._extract_text_content(msg["content"])) if msg["role"] == "user" 
-                      else AIMessagePromptTemplate.from_template(msg["content"]) 
-                      for msg in messages[:-1] if self._has_content(msg)],  # Only include messages with content
-                    HumanMessagePromptTemplate.from_template("{question}")  # Last message is the current question
+                    *[self._create_message_template(msg) for msg in messages[:-1] if self._has_content(msg)],  # Chat history
+                    self._create_message_template(current_question_msg)  # Current question with images
                 ])
                 
                 chain = (
-                    {"question": RunnablePassthrough()}
+                    {}
                     | prompt
                     | llm
                     | StrOutputParser()
                 )
                 
-                async for event in chain.astream_events(query):
+                async for event in chain.astream_events({}):
                     logger.info(f"Event stream: {event}")
                     
                     if event["event"] == "on_chat_model_end":
@@ -563,19 +571,23 @@ class ChatService:
                     }
                     return f"\n\n[ERROR]{error_response}"
                 
+                # Create current question message that preserves multimodal content
+                current_question_msg = None
+                if ai_config.imageSupport and image_files:
+                    current_question_msg = self.create_multimodal_message(query, image_files, ai_config.provider)
+                else:
+                    current_question_msg = {"role": "user", "content": query}
+                
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
-                    *[HumanMessagePromptTemplate.from_template(self._extract_text_content(msg["content"])) if msg["role"] == "user" 
-                      else AIMessagePromptTemplate.from_template(msg["content"]) 
-                      for msg in messages[:-1] if self._has_content(msg)],  # Only include messages with content
-                    HumanMessagePromptTemplate.from_template("{question}")  # Last message is the current question
+                    *[self._create_message_template(msg) for msg in messages[:-1] if self._has_content(msg)],  # Chat history
+                    self._create_message_template(current_question_msg)  # Current question with images
                 ])
                 
                 if vector_store:
                     rag_chain = (
                         {
                             "context": vector_store.as_retriever(),
-                            "question": RunnablePassthrough(),
                             "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
                         }
                         | prompt
@@ -585,7 +597,6 @@ class ChatService:
                 else:
                     rag_chain = (
                         {
-                            "question": RunnablePassthrough(),
                             "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
                         }
                         | prompt
@@ -593,8 +604,8 @@ class ChatService:
                         | StrOutputParser()
                     )
 
-                ai_response = rag_chain.invoke(query)
-                full_response = ai_response.content
+                ai_response = rag_chain.invoke({})
+                full_response = ai_response
                 
                 # Track actual token usage
                 token_usage = self.track_actual_token_usage(messages, full_response, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model)
@@ -606,7 +617,18 @@ class ChatService:
             else:
                 print(f"Using direct {ai_config.provider} completion")
                 messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
-                messages.append({"role": "user", "content": query})
+                
+                # Handle potential image files even in non-RAG case
+                image_files, text_files = file_processor.identify_files([]) if not files else file_processor.identify_files(files)
+                
+                # Create multimodal message if needed
+                if ai_config.imageSupport and image_files:
+                    multimodal_message = self.create_multimodal_message(query, image_files, ai_config.provider)
+                    messages.append(multimodal_message)
+                    current_question_msg = multimodal_message
+                else:
+                    messages.append({"role": "user", "content": query})
+                    current_question_msg = {"role": "user", "content": query}
                 
                 system_template = system_prompt
                 estimated_tokens = self.estimate_total_tokens(messages, system_template, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model)
@@ -629,20 +651,18 @@ class ChatService:
                 
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
-                    *[HumanMessagePromptTemplate.from_template(self._extract_text_content(msg["content"])) if msg["role"] == "user" 
-                      else AIMessagePromptTemplate.from_template(msg["content"]) 
-                      for msg in messages[:-1] if self._has_content(msg)],  # Only include messages with content
-                    HumanMessagePromptTemplate.from_template("{question}")  # Last message is the current question
+                    *[self._create_message_template(msg) for msg in messages[:-1] if self._has_content(msg)],  # Chat history
+                    self._create_message_template(current_question_msg)  # Current question with images
                 ])
                 
                 chain = (
-                    {"question": RunnablePassthrough()}
+                    {}
                     | prompt
                     | llm
                     | StrOutputParser()
                 )
 
-                ai_response = chain.invoke(query)
+                ai_response = chain.invoke({})
                 full_response = ai_response
                 
                 # Track actual token usage
@@ -1493,6 +1513,30 @@ class ChatService:
             # For providers that don't support vision, just return text
             logger.warning(f"Provider {provider} doesn't support vision. Images will be ignored.")
             return {"role": "user", "content": text_content}
+
+    def _create_message_template(self, message: dict):
+        """
+        Create a message template that preserves multimodal content.
+        Returns the appropriate LangChain message template.
+        """
+        from langchain_core.messages import HumanMessage, AIMessage
+        
+        role = message.get("role")
+        content = message.get("content")
+        
+        if role == "user":
+            if isinstance(content, list):
+                # Multimodal content - create HumanMessage directly
+                return HumanMessage(content=content)
+            else:
+                # Text content - use template
+                return HumanMessagePromptTemplate.from_template(content if isinstance(content, str) else str(content))
+        elif role == "assistant":
+            # Assistant messages are always text
+            return AIMessagePromptTemplate.from_template(content if isinstance(content, str) else str(content))
+        else:
+            # Default to text template
+            return HumanMessagePromptTemplate.from_template(content if isinstance(content, str) else str(content))
 
     def _extract_text_content(self, content):
         """Extract text content from message content, handling both string and multimodal formats."""
