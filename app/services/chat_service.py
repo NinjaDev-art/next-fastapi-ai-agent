@@ -388,10 +388,7 @@ class ChatService:
                 
                 # Create current question message that preserves multimodal content
                 current_question_msg = None
-                if ai_config.imageSupport and image_files:
-                    current_question_msg = self.create_multimodal_message(query, image_files, ai_config.provider)
-                else:
-                    current_question_msg = {"role": "user", "content": query}
+                current_question_msg = {"role": "user", "content": query}
                 
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
@@ -622,13 +619,8 @@ class ChatService:
                 image_files, text_files = file_processor.identify_files([]) if not files else file_processor.identify_files(files)
                 
                 # Create multimodal message if needed
-                if ai_config.imageSupport and image_files:
-                    multimodal_message = self.create_multimodal_message(query, image_files, ai_config.provider)
-                    messages.append(multimodal_message)
-                    current_question_msg = multimodal_message
-                else:
-                    messages.append({"role": "user", "content": query})
-                    current_question_msg = {"role": "user", "content": query}
+                messages.append({"role": "user", "content": query})
+                current_question_msg = {"role": "user", "content": query}
                 
                 system_template = system_prompt
                 estimated_tokens = self.estimate_total_tokens(messages, system_template, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model)
