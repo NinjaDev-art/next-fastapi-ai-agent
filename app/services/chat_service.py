@@ -249,14 +249,14 @@ class ChatService:
                     messages.append({"role": "user", "content": query})
 
                 if vector_store:
-                    system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
+                    system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}"
                     
                     # Get relevant context from files for token estimation
                     retriever = vector_store.as_retriever()
                     docs = retriever.get_relevant_documents(query)
                     context = "\n".join([doc.page_content for doc in docs])
                 else:
-                    system_template = system_prompt
+                    system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}"
                     context = ""
                 
                 # Estimate tokens before making the API call
@@ -286,10 +286,13 @@ class ChatService:
                 else:
                     current_question_msg = {"role": "user", "content": query}
                 
+                # Create prompt using traditional template approach
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
-                    *[self._create_message_template(msg) for msg in messages[:-1] if self._has_content(msg)],  # Chat history
-                    self._create_message_template(current_question_msg)  # Current question with images
+                    *[HumanMessagePromptTemplate.from_template(self._extract_text_content(msg["content"])) if msg["role"] == "user" 
+                      else AIMessagePromptTemplate.from_template(msg["content"]) 
+                      for msg in messages[:-1] if self._has_content(msg)],  # Chat history
+                    HumanMessagePromptTemplate.from_template(self._extract_text_content(current_question_msg["content"]))  # Current question
                 ])
 
                 if vector_store: 
@@ -366,7 +369,7 @@ class ChatService:
                 messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
                 messages.append({"role": "user", "content": learningPrompt if chatType == 1 else query})
                 
-                system_template = system_prompt
+                system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}"
                 estimated_tokens = self.estimate_total_tokens(messages, system_template, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model)
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
                 print(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
@@ -390,14 +393,19 @@ class ChatService:
                 current_question_msg = None
                 current_question_msg = {"role": "user", "content": query}
                 
+                # Create prompt using traditional template approach
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
-                    *[self._create_message_template(msg) for msg in messages[:-1] if self._has_content(msg)],  # Chat history
-                    self._create_message_template(current_question_msg)  # Current question with images
+                    *[HumanMessagePromptTemplate.from_template(self._extract_text_content(msg["content"])) if msg["role"] == "user" 
+                      else AIMessagePromptTemplate.from_template(msg["content"]) 
+                      for msg in messages[:-1] if self._has_content(msg)],  # Chat history
+                    HumanMessagePromptTemplate.from_template(self._extract_text_content(current_question_msg["content"]))  # Current question
                 ])
                 
                 chain = (
-                    {}
+                    {
+                        "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
+                    }
                     | prompt
                     | llm
                     | StrOutputParser()
@@ -539,14 +547,14 @@ class ChatService:
                     messages.append({"role": "user", "content": query})
                 
                 if vector_store:
-                    system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}\n\nQuestion: {question}"
+                    system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}"
 
                     # Get relevant context from files for token estimation
                     retriever = vector_store.as_retriever()
                     docs = retriever.get_relevant_documents(query)
                     context = "\n".join([doc.page_content for doc in docs])
                 else:
-                    system_template = system_prompt
+                    system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}"
                     context = ""
                 
                 # Estimate tokens before making the API call
@@ -575,10 +583,13 @@ class ChatService:
                 else:
                     current_question_msg = {"role": "user", "content": query}
                 
+                # Create prompt using traditional template approach
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
-                    *[self._create_message_template(msg) for msg in messages[:-1] if self._has_content(msg)],  # Chat history
-                    self._create_message_template(current_question_msg)  # Current question with images
+                    *[HumanMessagePromptTemplate.from_template(self._extract_text_content(msg["content"])) if msg["role"] == "user" 
+                      else AIMessagePromptTemplate.from_template(msg["content"]) 
+                      for msg in messages[:-1] if self._has_content(msg)],  # Chat history
+                    HumanMessagePromptTemplate.from_template(self._extract_text_content(current_question_msg["content"]))  # Current question
                 ])
                 
                 if vector_store:
@@ -622,7 +633,7 @@ class ChatService:
                 messages.append({"role": "user", "content": query})
                 current_question_msg = {"role": "user", "content": query}
                 
-                system_template = system_prompt
+                system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}"
                 estimated_tokens = self.estimate_total_tokens(messages, system_template, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model)
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
                 print(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
@@ -641,14 +652,19 @@ class ChatService:
                     }
                     return f"\n\n[ERROR]{error_response}"
                 
+                # Create prompt using traditional template approach
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
-                    *[self._create_message_template(msg) for msg in messages[:-1] if self._has_content(msg)],  # Chat history
-                    self._create_message_template(current_question_msg)  # Current question with images
+                    *[HumanMessagePromptTemplate.from_template(self._extract_text_content(msg["content"])) if msg["role"] == "user" 
+                      else AIMessagePromptTemplate.from_template(msg["content"]) 
+                      for msg in messages[:-1] if self._has_content(msg)],  # Chat history
+                    HumanMessagePromptTemplate.from_template(self._extract_text_content(current_question_msg["content"]))  # Current question
                 ])
                 
                 chain = (
-                    {}
+                    {
+                        "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
+                    }
                     | prompt
                     | llm
                     | StrOutputParser()
@@ -1505,30 +1521,6 @@ class ChatService:
             # For providers that don't support vision, just return text
             logger.warning(f"Provider {provider} doesn't support vision. Images will be ignored.")
             return {"role": "user", "content": text_content}
-
-    def _create_message_template(self, message: dict):
-        """
-        Create a message template that preserves multimodal content.
-        Returns the appropriate LangChain message template.
-        """
-        from langchain_core.messages import HumanMessage, AIMessage
-        
-        role = message.get("role")
-        content = message.get("content")
-        
-        if role == "user":
-            if isinstance(content, list):
-                # Multimodal content - create HumanMessage directly
-                return HumanMessage(content=content)
-            else:
-                # Text content - use template
-                return HumanMessagePromptTemplate.from_template(content if isinstance(content, str) else str(content))
-        elif role == "assistant":
-            # Assistant messages are always text
-            return AIMessagePromptTemplate.from_template(content if isinstance(content, str) else str(content))
-        else:
-            # Default to text template
-            return HumanMessagePromptTemplate.from_template(content if isinstance(content, str) else str(content))
 
     def _extract_text_content(self, content):
         """Extract text content from message content, handling both string and multimodal formats."""
