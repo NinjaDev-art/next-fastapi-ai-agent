@@ -391,7 +391,12 @@ class ChatService:
                 
                 # Create current question message that preserves multimodal content
                 current_question_msg = None
-                current_question_msg = {"role": "user", "content": query}
+                # Handle potential image files even in non-RAG case  
+                image_files, text_files = file_processor.identify_files(files) if files else ([], [])
+                if ai_config.imageSupport and image_files:
+                    current_question_msg = self.create_multimodal_message(query, image_files, ai_config.provider)
+                else:
+                    current_question_msg = {"role": "user", "content": query}
                 
                 # Create prompt using traditional template approach
                 prompt = ChatPromptTemplate.from_messages([
@@ -412,47 +417,47 @@ class ChatService:
                 )
                 
                 async for event in chain.astream_events({}):
-                    logger.info(f"Event stream: {event}")
-                    
-                    if event["event"] == "on_chat_model_end":
-                        usage = event["data"]["output"].usage_metadata
-                        if usage:
-                            token_usage = {
-                                "prompt_tokens": usage.get("input_tokens", 0),
-                                "completion_tokens": usage.get("output_tokens", 0),
-                                "total_tokens": usage.get("total_tokens", 0)
-                            }
-                            points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
-                            logger.info(f"Token usage for completion: {token_usage}, Cost: ${points:.6f}")
-                    elif event["event"] == "on_chat_model_stream":
-                        # Handle reasoning content at the model stream level
-                        chunk = event["data"]["chunk"]
-                        if hasattr(chunk, "additional_kwargs") and "reasoning_content" in chunk.additional_kwargs:
-                            reasoning = chunk.additional_kwargs["reasoning_content"]
-                            if reasoning:
-                                if not has_started_reasoning:
-                                    yield "<think>"
-                                    full_response += "<think>"
-                                    has_started_reasoning = True
-                                yield reasoning
-                                full_response += reasoning
-                                continue
-                    elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
-                        try:
+                        logger.info(f"Event stream: {event}")
+                        
+                        if event["event"] == "on_chat_model_end":
+                            usage = event["data"]["output"].usage_metadata
+                            if usage:
+                                token_usage = {
+                                    "prompt_tokens": usage.get("input_tokens", 0),
+                                    "completion_tokens": usage.get("output_tokens", 0),
+                                    "total_tokens": usage.get("total_tokens", 0)
+                                }
+                                points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
+                                logger.info(f"Token usage for completion: {token_usage}, Cost: ${points:.6f}")
+                        elif event["event"] == "on_chat_model_stream":
+                            # Handle reasoning content at the model stream level
                             chunk = event["data"]["chunk"]
-                            if chunk is None:
+                            if hasattr(chunk, "additional_kwargs") and "reasoning_content" in chunk.additional_kwargs:
+                                reasoning = chunk.additional_kwargs["reasoning_content"]
+                                if reasoning:
+                                    if not has_started_reasoning:
+                                        yield "<think>"
+                                        full_response += "<think>"
+                                        has_started_reasoning = True
+                                    yield reasoning
+                                    full_response += reasoning
+                                    continue
+                        elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
+                            try:
+                                chunk = event["data"]["chunk"]
+                                if chunk is None:
+                                    continue
+                                chunk_str = str(chunk) if not isinstance(chunk, str) else chunk
+                                if has_started_reasoning and chunk_str != "":
+                                    yield "</think>\n"
+                                    full_response += "</think>\n"
+                                    has_started_reasoning = False
+                                full_response += chunk_str
+                                yield chunk_str
+                            except Exception as e:
+                                logger.error(f"Error processing chunk: {str(e)}")
                                 continue
-                            chunk_str = str(chunk) if not isinstance(chunk, str) else chunk
-                            if has_started_reasoning and chunk_str != "":
-                                yield "</think>\n"
-                                full_response += "</think>\n"
-                                has_started_reasoning = False
-                            full_response += chunk_str
-                            yield chunk_str
-                        except Exception as e:
-                            logger.error(f"Error processing chunk: {str(e)}")
-                            continue
-                        await asyncio.sleep(0.01)
+                            await asyncio.sleep(0.01)
                 
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
                 yield f"\n\n[POINTS]{points}"
@@ -627,11 +632,16 @@ class ChatService:
                 messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
                 
                 # Handle potential image files even in non-RAG case
-                image_files, text_files = file_processor.identify_files([]) if not files else file_processor.identify_files(files)
+                image_files, text_files = file_processor.identify_files(files) if files else ([], [])
                 
                 # Create multimodal message if needed
-                messages.append({"role": "user", "content": query})
-                current_question_msg = {"role": "user", "content": query}
+                if ai_config.imageSupport and image_files:
+                    multimodal_message = self.create_multimodal_message(query, image_files, ai_config.provider)
+                    messages.append(multimodal_message)
+                    current_question_msg = multimodal_message
+                else:
+                    messages.append({"role": "user", "content": query})
+                    current_question_msg = {"role": "user", "content": query}
                 
                 system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}"
                 estimated_tokens = self.estimate_total_tokens(messages, system_template, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model)
@@ -1522,6 +1532,40 @@ class ChatService:
             logger.warning(f"Provider {provider} doesn't support vision. Images will be ignored.")
             return {"role": "user", "content": text_content}
 
+    def _has_multimodal_content(self, current_question_msg: dict) -> bool:
+        """Check if the current question contains multimodal content."""
+        content = current_question_msg.get("content")
+        return isinstance(content, list)
+    
+    def _create_direct_messages(self, messages: List[dict], system_template: str, current_question_msg: dict, chat_history: List[IRouterChatLog], context: str = ""):
+        """Create direct messages for multimodal content that bypasses template system."""
+        from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+        
+        # Format system message with actual values
+        system_content = system_template.format(
+            chat_history="\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response]),
+            context=context
+        )
+        
+        final_messages = [SystemMessage(content=system_content)]
+        
+        # Add chat history messages
+        for msg in messages[:-1]:  # Exclude the last message (current question)
+            if self._has_content(msg):
+                role = msg.get("role")
+                content = msg.get("content")
+                
+                if role == "user":
+                    final_messages.append(HumanMessage(content=content))
+                elif role == "assistant":
+                    final_messages.append(AIMessage(content=content))
+        
+        # Add current question (preserving multimodal content)
+        if current_question_msg:
+            final_messages.append(HumanMessage(content=current_question_msg.get("content")))
+        
+        return final_messages
+
     def _extract_text_content(self, content):
         """Extract text content from message content, handling both string and multimodal formats."""
         if isinstance(content, str):
@@ -1592,6 +1636,66 @@ class ChatService:
                 "Combine images with text prompts for best results",
                 "Multiple images can be processed in a single request"
             ]
-        }
+                  }
+
+    def _create_chat_messages_for_llm(self, messages: List[dict], system_prompt: str, current_question: str, context: str = "", chat_history_str: str = "", provider: str = "openai") -> List[dict]:
+        """
+        Create properly formatted messages for the LLM, preserving multimodal content.
+        This bypasses ChatPromptTemplate when multimodal content is present.
+        """
+        formatted_messages = []
+        
+        # Handle system prompt based on provider
+        system_content = system_prompt
+        if context:
+            system_content += f"\n\nContext:\n{context}"
+        if chat_history_str:
+            system_content += f"\n\nPrevious conversation:\n{chat_history_str}"
+        
+        # For Anthropic, we don't add system message to the messages array
+        # It's handled separately by the LLM
+        if provider.lower() != "anthropic" and system_content:
+            formatted_messages.append({"role": "system", "content": system_content})
+        
+        # Add chat history messages, preserving multimodal content
+        for msg in messages[:-1]:  # Exclude the last message as it's the current question
+            if self._has_content(msg):
+                formatted_messages.append({
+                    "role": msg["role"],
+                    "content": msg["content"]  # Preserve original content (text or multimodal)
+                })
+        
+        # Add current question (might be multimodal)
+        if isinstance(messages[-1]["content"], list):
+            # Current question is multimodal, preserve it
+            formatted_messages.append({
+                "role": "user",
+                "content": messages[-1]["content"]
+            })
+        else:
+            # Current question is text-only, use the provided question
+            # For Anthropic, prepend system content to first user message if no system message was added
+            if provider.lower() == "anthropic" and system_content and not any(msg["role"] == "user" for msg in formatted_messages):
+                content = f"{system_content}\n\n{current_question}"
+            else:
+                content = current_question
+                
+            formatted_messages.append({
+                "role": "user", 
+                "content": content
+            })
+        
+        return formatted_messages
+
+    def _has_multimodal_content(self, messages: List[dict]) -> bool:
+        """Check if any message contains multimodal content (images)."""
+        for msg in messages:
+            content = msg.get("content")
+            if isinstance(content, list):
+                # Check if any item in the list is an image
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") in ["image_url", "image"]:
+                        return True
+        return False
 
 chat_service = ChatService() 
