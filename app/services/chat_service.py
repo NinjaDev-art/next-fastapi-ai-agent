@@ -376,17 +376,23 @@ class ChatService:
                     # Create current question message that preserves content
                     current_question_msg = {"role": "user", "content": query}
                     
-                    # Create prompt using traditional template approach
-                    prompt = ChatPromptTemplate.from_messages([
-                        SystemMessagePromptTemplate.from_template(system_template),
-                        *[HumanMessagePromptTemplate.from_template(self._extract_text_content(msg["content"])) if msg["role"] == "user" 
-                          else AIMessagePromptTemplate.from_template(msg["content"]) 
-                          for msg in messages[:-1] if self._has_content(msg)],  # Chat history
-                        HumanMessagePromptTemplate.from_template(self._extract_text_content(current_question_msg["content"]))  # Current question
-                    ])
-
-                    if vector_store: 
-                        rag_chain = (
+                                    # Create prompt using traditional template approach
+                prompt = ChatPromptTemplate.from_messages([
+                    SystemMessagePromptTemplate.from_template(system_template),
+                    *[HumanMessagePromptTemplate.from_template(
+                        str(self._extract_text_content(msg.get("content", "")))
+                    ) if msg["role"] == "user" 
+                      else AIMessagePromptTemplate.from_template(
+                        str(msg.get("content", ""))
+                    ) 
+                      for msg in messages[:-1] if self._has_content(msg)],  # Chat history
+                    HumanMessagePromptTemplate.from_template(
+                        str(self._extract_text_content(current_question_msg.get("content", "")))
+                    )  # Current question
+                ])
+                
+                if vector_store:
+                    rag_chain = (
                             {
                                 "context": vector_store.as_retriever(),
                                 "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
@@ -396,15 +402,15 @@ class ChatService:
                             | StrOutputParser()
                         )
 
-                    else:
-                        rag_chain = (
-                            {
-                                "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
-                            }
-                            | prompt
-                            | llm
-                            | StrOutputParser()
-                        )
+                else:
+                    rag_chain = (
+                        {
+                            "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
+                        }
+                        | prompt
+                        | llm
+                        | StrOutputParser()
+                    )
                     
                     async for event in rag_chain.astream_events({}):
                         logger.info(f"Event stream: {event}")
@@ -541,10 +547,16 @@ class ChatService:
                     # Create prompt using traditional template approach
                     prompt = ChatPromptTemplate.from_messages([
                         SystemMessagePromptTemplate.from_template(system_template),
-                        *[HumanMessagePromptTemplate.from_template(self._extract_text_content(msg["content"])) if msg["role"] == "user" 
-                          else AIMessagePromptTemplate.from_template(msg["content"]) 
+                        *[HumanMessagePromptTemplate.from_template(
+                           str(self._extract_text_content(msg.get("content", "")))
+                        ) if msg["role"] == "user" 
+                          else AIMessagePromptTemplate.from_template(
+                           str(msg.get("content", ""))
+                        ) 
                           for msg in messages[:-1] if self._has_content(msg)],  # Chat history
-                        HumanMessagePromptTemplate.from_template(self._extract_text_content(current_question_msg["content"]))  # Current question
+                        HumanMessagePromptTemplate.from_template(
+                            str(self._extract_text_content(current_question_msg.get("content", "")))
+                        )  # Current question
                     ])
                     
                     chain = (
@@ -731,10 +743,16 @@ class ChatService:
                 # Create prompt using traditional template approach
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
-                    *[HumanMessagePromptTemplate.from_template(self._extract_text_content(msg["content"])) if msg["role"] == "user" 
-                      else AIMessagePromptTemplate.from_template(msg["content"]) 
+                    *[HumanMessagePromptTemplate.from_template(
+                        str(self._extract_text_content(msg.get("content", "")))
+                    ) if msg["role"] == "user" 
+                      else AIMessagePromptTemplate.from_template(
+                        str(msg.get("content", ""))
+                    ) 
                       for msg in messages[:-1] if self._has_content(msg)],  # Chat history
-                    HumanMessagePromptTemplate.from_template(self._extract_text_content(current_question_msg["content"]))  # Current question
+                    HumanMessagePromptTemplate.from_template(
+                        str(self._extract_text_content(current_question_msg.get("content", "")))
+                    )  # Current question
                 ])
                 
                 if vector_store:
@@ -805,10 +823,10 @@ class ChatService:
                 # Create prompt using traditional template approach
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
-                    *[HumanMessagePromptTemplate.from_template(self._extract_text_content(msg["content"])) if msg["role"] == "user" 
-                      else AIMessagePromptTemplate.from_template(msg["content"]) 
+                    *[HumanMessagePromptTemplate.from_template(str(self._extract_text_content(msg.get("content", "")))) if msg["role"] == "user" 
+                      else AIMessagePromptTemplate.from_template(str(msg.get("content", ""))) 
                       for msg in messages[:-1] if self._has_content(msg)],  # Chat history
-                    HumanMessagePromptTemplate.from_template(self._extract_text_content(current_question_msg["content"]))  # Current question
+                    HumanMessagePromptTemplate.from_template(str(self._extract_text_content(current_question_msg.get("content", ""))))  # Current question
                 ])
                 
                 chain = (
@@ -1729,20 +1747,32 @@ class ChatService:
 
     def _extract_text_content(self, content):
         """Extract text content from message content, handling both string and multimodal formats."""
-        if isinstance(content, str):
-            return content
-        elif isinstance(content, list):
-            # Multimodal content - find text parts
-            text_parts = []
-            for item in content:
-                if isinstance(item, dict) and item.get("type") == "text":
-                    text_parts.append(item.get("text", ""))
-            return " ".join(text_parts)
-        elif isinstance(content, dict) and "text" in content:
-            return content["text"]
-        else:
-            logger.warning(f"Unsupported content format: {type(content)}")
-            return ""
+        try:
+            if isinstance(content, str):
+                return str(content)
+            elif isinstance(content, list):
+                # Multimodal content - find text parts
+                text_parts = []
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        text_parts.append(str(item.get("text", "")))
+                result = " ".join(text_parts)
+                return str(result) if result else ""
+            elif isinstance(content, dict):
+                if "text" in content:
+                    return str(content["text"])
+                elif "content" in content:
+                    return str(content["content"])
+                else:
+                    # If it's a dict but no recognizable text field, convert the whole dict
+                    logger.warning(f"Dict content without text field: {content}")
+                    return str(content)
+            else:
+                logger.warning(f"Unsupported content format: {type(content)}, converting to string")
+                return str(content) if content is not None else ""
+        except Exception as e:
+            logger.error(f"Error extracting text content from {type(content)}: {e}")
+            return str(content) if content is not None else ""
 
     def _has_content(self, message):
         """Check if a message has content."""
@@ -1858,5 +1888,20 @@ class ChatService:
                     if isinstance(item, dict) and item.get("type") in ["image_url", "image"]:
                         return True
         return False
+
+    def _safe_template_content(self, content) -> str:
+        """Safely extract content for template creation, ensuring string output."""
+        try:
+            if content is None:
+                return ""
+            
+            # Use _extract_text_content for multimodal content
+            extracted = self._extract_text_content(content)
+            
+            # Ensure it's a string
+            return str(extracted) if extracted is not None else ""
+        except Exception as e:
+            logger.error(f"Error safely extracting template content: {e}")
+            return str(content) if content is not None else ""
 
 chat_service = ChatService() 
