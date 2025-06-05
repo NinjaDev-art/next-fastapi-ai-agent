@@ -1903,5 +1903,34 @@ class ChatService:
         except Exception as e:
             logger.error(f"Error safely extracting template content: {e}")
             return str(content) if content is not None else ""
+    
+    def _determine_processing_mode(self, files: List[str], ai_config) -> tuple:
+        """Determine the processing mode based on files and AI config."""
+        if not files:
+            return "text_only", [], []
+            
+        image_files, text_files = file_processor.identify_files(files)
+        
+        # Check capabilities
+        has_images = bool(image_files)
+        has_text_files = bool(text_files)
+        supports_images = ai_config.imageSupport if ai_config else False
+        
+        if has_images and has_text_files:
+            if supports_images:
+                return "multimodal_rag", image_files, text_files
+            else:
+                logger.warning(f"Provider {ai_config.provider} doesn't support images, processing text files only")
+                return "rag_only", [], text_files
+        elif has_images and supports_images:
+            return "multimodal_only", image_files, []
+        elif has_text_files:
+            return "rag_only", [], text_files
+        else:
+            return "text_only", [], []
+    
+    def _should_use_direct_llm(self, mode: str, image_files: List[str]) -> bool:
+        """Determine if we should use direct LLM invocation instead of chain."""
+        return mode in ["multimodal_only", "multimodal_rag"] and bool(image_files)
 
 chat_service = ChatService() 
