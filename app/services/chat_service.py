@@ -286,17 +286,29 @@ class ChatService:
                       for msg in messages[:-1] if self._has_content(msg)],  # Only include messages with content
                     HumanMessagePromptTemplate.from_template("{question}")  # Last message is the current question
                 ])
-                
-                rag_chain = (
-                    {
-                        "context": vector_store.as_retriever(),
-                        "question": RunnablePassthrough(),
-                        "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
-                    }
-                    | prompt
-                    | llm
-                    | StrOutputParser()
-                )
+
+                if vector_store: 
+                    rag_chain = (
+                        {
+                            "context": vector_store.as_retriever(),
+                            "question": RunnablePassthrough(),
+                            "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
+                        }
+                        | prompt
+                        | llm
+                        | StrOutputParser()
+                    )
+
+                else:
+                    rag_chain = (
+                        {
+                            "question": RunnablePassthrough(),
+                            "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
+                        }
+                        | prompt
+                        | llm
+                        | StrOutputParser()
+                    )
                 
                 async for event in rag_chain.astream_events(query):
                     logger.info(f"Event stream: {event}")
@@ -559,16 +571,27 @@ class ChatService:
                     HumanMessagePromptTemplate.from_template("{question}")  # Last message is the current question
                 ])
                 
-                rag_chain = (
-                    {
-                        "context": vector_store.as_retriever(),
-                        "question": RunnablePassthrough(),
-                        "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
-                    }
-                    | prompt
-                    | llm
-                    | StrOutputParser()
-                )
+                if vector_store:
+                    rag_chain = (
+                        {
+                            "context": vector_store.as_retriever(),
+                            "question": RunnablePassthrough(),
+                            "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
+                        }
+                        | prompt
+                        | llm
+                        | StrOutputParser()
+                    )
+                else:
+                    rag_chain = (
+                        {
+                            "question": RunnablePassthrough(),
+                            "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
+                        }
+                        | prompt
+                        | llm
+                        | StrOutputParser()
+                    )
 
                 ai_response = rag_chain.invoke(query)
                 full_response = ai_response.content
