@@ -111,11 +111,18 @@ class FileProcessor:
                 processor = self.processors.get(file_extension, self.process_txt)
                 text = processor(content)
                 
+                # Ensure text is a string
+                if not isinstance(text, str):
+                    logger.warning(f"Processor returned {type(text)} instead of string, converting")
+                    text = str(text)
+                
                 all_text += text + "\n\n"
                 logger.info(f"Successfully processed file: {file_url}")
             except Exception as e:
                 logger.error(f"Error processing file {file_url}: {str(e)}")
-                raise
+                # Continue processing other files instead of raising
+                all_text += f"Error processing {file_url}: {str(e)}\n\n"
+                
         return all_text
     
     def identify_files(self, files: List[str]) -> List[str]:
