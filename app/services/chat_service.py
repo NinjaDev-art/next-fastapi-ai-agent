@@ -1358,6 +1358,12 @@ class ChatService:
                 chunk_overlap=200,
                 length_function=len,
             )
+            
+            # Ensure text is properly formatted for text splitter
+            if not isinstance(text, str):
+                logger.error(f"Text splitter expects string, got {type(text)}: {text}")
+                text = str(text)
+            
             texts = text_splitter.split_text(text)
             logger.info(f"Split text into {len(texts)} chunks")
             

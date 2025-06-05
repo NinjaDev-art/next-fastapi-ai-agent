@@ -46,58 +46,99 @@ class FileProcessor:
             raise
 
     def process_pdf(self, content: bytes) -> str:
-        pdf_reader = PdfReader(io.BytesIO(content))
-        text = ""
-        for page in pdf_reader.pages:
-            text += page.extract_text()
-        return text
+        try:
+            pdf_reader = PdfReader(io.BytesIO(content))
+            text = ""
+            for page in pdf_reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text += str(page_text)
+            return str(text) if text else "No text content found in PDF"
+        except Exception as e:
+            logger.error(f"Error processing PDF: {str(e)}")
+            return f"Error processing PDF file: {str(e)}"
 
     def process_docx(self, content: bytes) -> str:
-        doc = docx.Document(io.BytesIO(content))
-        text = ""
-        for paragraph in doc.paragraphs:
-            text += paragraph.text + "\n"
-        return text
+        try:
+            doc = docx.Document(io.BytesIO(content))
+            text = ""
+            for paragraph in doc.paragraphs:
+                if paragraph.text:
+                    text += str(paragraph.text) + "\n"
+            return str(text) if text else "No text content found in DOCX"
+        except Exception as e:
+            logger.error(f"Error processing DOCX: {str(e)}")
+            return f"Error processing DOCX file: {str(e)}"
 
     def process_csv(self, content: bytes) -> str:
-        df = pd.read_csv(io.BytesIO(content))
-        return df.to_string()
+        try:
+            df = pd.read_csv(io.BytesIO(content))
+            return str(df.to_string())
+        except Exception as e:
+            logger.error(f"Error processing CSV: {str(e)}")
+            return f"Error processing CSV file: {str(e)}"
 
     def process_txt(self, content: bytes) -> str:
-        return content.decode('utf-8')
+        try:
+            return str(content.decode('utf-8'))
+        except Exception as e:
+            logger.error(f"Error processing TXT: {str(e)}")
+            return f"Error processing TXT file: {str(e)}"
 
     def process_json(self, content: bytes) -> str:
-        data = json.loads(content)
-        return json.dumps(data, indent=2)
+        try:
+            data = json.loads(content)
+            return str(json.dumps(data, indent=2))
+        except Exception as e:
+            logger.error(f"Error processing JSON: {str(e)}")
+            return f"Error processing JSON file: {str(e)}"
 
     def process_html(self, content: bytes) -> str:
-        soup = BeautifulSoup(content, 'html.parser')
-        for script in soup(["script", "style"]):
-            script.decompose()
-        return soup.get_text()
+        try:
+            soup = BeautifulSoup(content, 'html.parser')
+            for script in soup(["script", "style"]):
+                script.decompose()
+            return str(soup.get_text())
+        except Exception as e:
+            logger.error(f"Error processing HTML: {str(e)}")
+            return f"Error processing HTML file: {str(e)}"
 
     def process_xls(self, content: bytes) -> str:
-        workbook = xlrd.open_workbook(file_contents=content)
-        text = ""
-        for sheet in workbook.sheets():
-            text += f"Sheet: {sheet.name}\n"
-            for row in range(sheet.nrows):
-                text += "\t".join(str(cell.value) for cell in sheet.row(row)) + "\n"
-        return text
+        try:
+            workbook = xlrd.open_workbook(file_contents=content)
+            text = ""
+            for sheet in workbook.sheets():
+                text += f"Sheet: {sheet.name}\n"
+                for row in range(sheet.nrows):
+                    row_data = "\t".join(str(cell.value) for cell in sheet.row(row))
+                    text += str(row_data) + "\n"
+            return str(text)
+        except Exception as e:
+            logger.error(f"Error processing XLS: {str(e)}")
+            return f"Error processing XLS file: {str(e)}"
 
     def process_xlsx(self, content: bytes) -> str:
-        workbook = openpyxl.load_workbook(io.BytesIO(content))
-        text = ""
-        for sheet in workbook:
-            text += f"Sheet: {sheet.title}\n"
-            for row in sheet.iter_rows():
-                text += "\t".join(str(cell.value) for cell in row) + "\n"
-        return text
+        try:
+            workbook = openpyxl.load_workbook(io.BytesIO(content))
+            text = ""
+            for sheet in workbook:
+                text += f"Sheet: {sheet.title}\n"
+                for row in sheet.iter_rows():
+                    row_data = "\t".join(str(cell.value) for cell in row)
+                    text += str(row_data) + "\n"
+            return str(text)
+        except Exception as e:
+            logger.error(f"Error processing XLSX: {str(e)}")
+            return f"Error processing XLSX file: {str(e)}"
 
     def process_xml(self, content: bytes) -> str:
-        tree = ET.ElementTree(ET.fromstring(content))
-        root = tree.getroot()
-        return ET.tostring(root, encoding='unicode', method='text')
+        try:
+            tree = ET.ElementTree(ET.fromstring(content))
+            root = tree.getroot()
+            return str(ET.tostring(root, encoding='unicode', method='text'))
+        except Exception as e:
+            logger.error(f"Error processing XML: {str(e)}")
+            return f"Error processing XML file: {str(e)}"
 
     def process_files(self, files: List[str]) -> str:
         logger.info(f"Processing files: {files}")
