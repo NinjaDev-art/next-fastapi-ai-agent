@@ -49,11 +49,30 @@ class FileProcessor:
         try:
             pdf_reader = PdfReader(io.BytesIO(content))
             text = ""
-            for page in pdf_reader.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += str(page_text)
-            return str(text) if text else "No text content found in PDF"
+            
+            # Log PDF metadata
+            logger.info(f"Processing PDF with {len(pdf_reader.pages)} pages")
+            
+            for i, page in enumerate(pdf_reader.pages):
+                try:
+                    page_text = page.extract_text()
+                    if page_text:
+                        # Clean up the text
+                        page_text = page_text.replace('\n\n', '\n').strip()
+                        text += f"\n--- Page {i+1} ---\n{page_text}\n"
+                        logger.info(f"Successfully extracted text from page {i+1}")
+                    else:
+                        logger.warning(f"No text content found on page {i+1}")
+                except Exception as page_error:
+                    logger.error(f"Error processing page {i+1}: {str(page_error)}")
+                    text += f"\n--- Page {i+1} (Error) ---\nError extracting text: {str(page_error)}\n"
+            
+            if not text.strip():
+                logger.warning("No text content found in PDF")
+                return "No text content found in PDF"
+                
+            return text
+            
         except Exception as e:
             logger.error(f"Error processing PDF: {str(e)}")
             return f"Error processing PDF file: {str(e)}"
@@ -143,8 +162,14 @@ class FileProcessor:
     def process_files(self, files: List[str]) -> str:
         logger.info(f"Processing files: {files}")
         all_text = ""
+        
+        if not files:
+            logger.warning("No files provided for processing")
+            return ""
+            
         for file_url in files:
             try:
+                logger.info(f"Starting to process file: {file_url}")
                 content = self.download_file(file_url)
                 file_extension = Path(file_url).suffix.lower()
                 logger.info(f"Processing file with extension: {file_extension}")
@@ -152,19 +177,29 @@ class FileProcessor:
                 processor = self.processors.get(file_extension, self.process_txt)
                 text = processor(content)
                 
-                # Ensure text is a string
+                # Ensure text is a string and clean it up
                 if not isinstance(text, str):
                     logger.warning(f"Processor returned {type(text)} instead of string, converting")
                     text = str(text)
                 
-                all_text += text + "\n\n"
-                logger.info(f"Successfully processed file: {file_url}")
+                # Clean up the text
+                text = text.strip()
+                if text:
+                    all_text += f"\n=== File: {Path(file_url).name} ===\n{text}\n\n"
+                    logger.info(f"Successfully processed file: {file_url}")
+                else:
+                    logger.warning(f"No content extracted from file: {file_url}")
+                    
             except Exception as e:
-                logger.error(f"Error processing file {file_url}: {str(e)}")
-                # Continue processing other files instead of raising
-                all_text += f"Error processing {file_url}: {str(e)}\n\n"
-                
-        return all_text
+                error_msg = f"Error processing file {file_url}: {str(e)}"
+                logger.error(error_msg)
+                all_text += f"\n=== Error in {Path(file_url).name} ===\n{error_msg}\n\n"
+        
+        if not all_text.strip():
+            logger.warning("No content extracted from any files")
+            return "No content could be extracted from the provided files"
+            
+        return all_text.strip()
     
     def identify_files(self, files: List[str]) -> List[str]:
         """

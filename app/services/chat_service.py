@@ -251,15 +251,45 @@ class ChatService:
                     messages.append({"role": "user", "content": query})
 
                 if vector_store:
-                    system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}"
+                    logger.info("Setting up RAG with vector store...")
+                    # Get relevant context from files
+                    retriever = vector_store.as_retriever(
+                        search_type="similarity",
+                        search_kwargs={"k": 4}
+                    )
+                    logger.info("Retrieving documents from vector store...")
+                    docs = await retriever.ainvoke(query)
+                    logger.info(f"Retrieved {len(docs)} documents")
                     
-                    # Get relevant context from files for token estimation
-                    retriever = vector_store.as_retriever()
-                    docs = retriever.get_relevant_documents(query)
-                    context = "\n".join([doc.page_content for doc in docs])
+                    # Format context with source information
+                    context_parts = []
+                    for doc in docs:
+                        if hasattr(doc, 'metadata') and 'source' in doc.metadata:
+                            context_parts.append(f"[Source: {doc.metadata['source']}]\n{doc.page_content}")
+                        else:
+                            context_parts.append(doc.page_content)
+                    
+                    context = "\n\n".join(context_parts)
+                    logger.info(f"Context length: {len(context)}")
+                    
+                    # Create system template with context
+                    system_template = f"""You are a helpful AI assistant. Use the following context from the provided documents to answer the user's question. If the answer cannot be found in the context, say so.
+
+Context from documents:
+{context}
+
+Previous conversation:
+{{chat_history}}
+
+Now, please answer the user's question based on the above context."""
                 else:
                     system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}"
                     context = ""
+                
+                # Create current question message that preserves content
+                current_question_msg = {"role": "user", "content": query}
+                if ai_config.imageSupport and image_files:
+                    current_question_msg = self.create_multimodal_message(query, image_files, ai_config.provider)
                 
                 # Estimate tokens before making the API call
                 estimated_tokens = self.estimate_total_tokens(messages, system_template, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model, context)
@@ -285,98 +315,91 @@ class ChatService:
                 has_multimodal = ai_config.imageSupport and image_files
                 
                 if has_multimodal:
-                    # For multimodal content, create direct messages to preserve image data
+                    # For multimodal content, use direct LLM invocation to preserve image data
+                    logger.info("Processing multimodal content with images...")
+                    
+                    # Create direct messages that preserve multimodal content
                     chat_history_str = "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
-                    direct_messages = self._create_chat_messages_for_llm(
-                        messages, 
-                        system_prompt, 
-                        query, 
-                        context, 
-                        chat_history_str, 
-                        ai_config.provider
-                    )
                     
-                    # Use direct LLM invocation for multimodal content
+                    # Create system content with context if available
+                    system_content = system_prompt
                     if vector_store:
-                        async for event in llm.astream_events(direct_messages):
-                            logger.info(f"Multimodal event stream: {event}")
-                            
-                            if event["event"] == "on_chat_model_end":
-                                usage = event["data"]["output"].usage_metadata
-                                if usage:
-                                    token_usage = {
-                                        "prompt_tokens": usage.get("input_tokens", 0),
-                                        "completion_tokens": usage.get("output_tokens", 0),
-                                        "total_tokens": usage.get("total_tokens", 0)
-                                    }
-                                    points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
-                                    logger.info(f"Token usage for multimodal RAG: {token_usage}, Cost: ${points:.6f}")
-                            elif event["event"] == "on_chat_model_stream":
-                                # Handle reasoning content at the model stream level
-                                chunk = event["data"]["chunk"]
-                                if hasattr(chunk, "additional_kwargs") and "reasoning_content" in chunk.additional_kwargs:
-                                    reasoning = chunk.additional_kwargs["reasoning_content"]
-                                    if reasoning:
-                                        if not has_started_reasoning:
-                                            yield "<think>"
-                                            has_started_reasoning = True
-                                            full_response += "<think>"
-                                        yield reasoning
-                                        full_response += reasoning
-                                        continue
-                                        
-                                if hasattr(chunk, "content") and chunk.content:
-                                    if has_started_reasoning:
-                                        yield "</think>\n"
-                                        has_started_reasoning = False
-                                        full_response += "</think>\n"
-                                    
-                                    content = chunk.content
-                                    full_response += content
-                                    yield content
+                        system_content = f"""You are a helpful AI assistant. Use the following context from the provided documents to answer the user's question. If the answer cannot be found in the context, say so.
+
+Context from documents:
+{context}
+
+Previous conversation:
+{chat_history_str}
+
+Now, please answer the user's question based on the above context and the images provided."""
                     else:
-                        async for event in llm.astream_events(direct_messages):
-                            logger.info(f"Multimodal event stream: {event}")
-                            
-                            if event["event"] == "on_chat_model_end":
-                                usage = event["data"]["output"].usage_metadata
-                                if usage:
-                                    token_usage = {
-                                        "prompt_tokens": usage.get("input_tokens", 0),
-                                        "completion_tokens": usage.get("output_tokens", 0),
-                                        "total_tokens": usage.get("total_tokens", 0)
-                                    }
-                                    points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
-                                    logger.info(f"Token usage for multimodal completion: {token_usage}, Cost: ${points:.6f}")
-                            elif event["event"] == "on_chat_model_stream":
-                                # Handle reasoning content at the model stream level
-                                chunk = event["data"]["chunk"]
-                                if hasattr(chunk, "additional_kwargs") and "reasoning_content" in chunk.additional_kwargs:
-                                    reasoning = chunk.additional_kwargs["reasoning_content"]
-                                    if reasoning:
-                                        if not has_started_reasoning:
-                                            yield "<think>"
-                                            has_started_reasoning = True
-                                            full_response += "<think>"
-                                        yield reasoning
-                                        full_response += reasoning
-                                        continue
-                                        
-                                if hasattr(chunk, "content") and chunk.content:
-                                    if has_started_reasoning:
-                                        yield "</think>\n"
-                                        has_started_reasoning = False
-                                        full_response += "</think>\n"
-                                    
-                                    content = chunk.content
-                                    full_response += content
-                                    yield content
-                else:
-                    # For text-only content, use the traditional template approach
-                    # Create current question message that preserves content
-                    current_question_msg = {"role": "user", "content": query}
+                        system_content = f"{system_prompt}\n\nPrevious conversation:\n{chat_history_str}"
                     
-                                    # Create prompt using traditional template approach
+                    # Create messages for direct LLM invocation
+                    direct_messages = []
+                    
+                    # Add system message (except for Anthropic)
+                    if ai_config.provider.lower() != "anthropic":
+                        direct_messages.append({"role": "system", "content": system_content})
+                    
+                    # Add chat history
+                    for msg in messages[:-1]:  # Exclude current question
+                        if self._has_content(msg):
+                            direct_messages.append({
+                                "role": msg["role"],
+                                "content": msg["content"]
+                            })
+                    
+                    # Add current multimodal question
+                    direct_messages.append(current_question_msg)
+                    
+                    # For Anthropic, add system content to the first user message
+                    if ai_config.provider.lower() == "anthropic" and direct_messages:
+                        # Find first user message and prepend system content
+                        for i, msg in enumerate(direct_messages):
+                            if msg["role"] == "user":
+                                if isinstance(msg["content"], str):
+                                    direct_messages[i]["content"] = f"{system_content}\n\n{msg['content']}"
+                                elif isinstance(msg["content"], list):
+                                    # For multimodal content, add system content as first text item
+                                    direct_messages[i]["content"].insert(0, {"type": "text", "text": system_content})
+                                break
+                    
+                    # Stream response using direct LLM invocation
+                    try:
+                        async for chunk in llm.astream(direct_messages):
+                            if hasattr(chunk, 'content') and chunk.content:
+                                full_response += chunk.content
+                                yield chunk.content
+                    except Exception as stream_error:
+                        logger.error(f"Error during multimodal streaming: {str(stream_error)}")
+                        raise HTTPException(
+                            status_code=500,
+                            detail=f"Error during multimodal streaming: {str(stream_error)}"
+                        )
+                    
+                    # Calculate token usage for multimodal content
+                    try:
+                        token_usage = self.track_actual_token_usage(
+                            direct_messages,
+                            full_response,
+                            ai_config.model
+                        )
+                        points = self.get_points(
+                            token_usage["prompt_tokens"],
+                            token_usage["completion_tokens"],
+                            ai_config
+                        )
+                        yield f"\n\n[POINTS]{points}"
+                    except Exception as token_error:
+                        logger.error(f"Error calculating token usage for multimodal: {str(token_error)}")
+                        yield "\n\n[POINTS]0"
+                else:
+                    # Regular RAG or text-only processing
+                    logger.info("Processing text-only content...")
+                
+                # Create prompt template for the chain
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
                     *[HumanMessagePromptTemplate.from_template(
@@ -391,228 +414,141 @@ class ChatService:
                     )  # Current question
                 ])
                 
-                if vector_store:
-                    rag_chain = (
-                            {
-                                "context": vector_store.as_retriever(),
-                                "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
-                            }
-                            | prompt
-                            | llm
-                            | StrOutputParser()
-                        )
-
-                else:
-                    rag_chain = (
-                        {
-                            "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
-                        }
-                        | prompt
-                        | llm
-                        | StrOutputParser()
-                    )
-                    
-                    async for event in rag_chain.astream_events({}):
-                        logger.info(f"Event stream: {event}")
-                        
-                        if event["event"] == "on_chat_model_end":
-                            usage = event["data"]["output"].usage_metadata
-                            if usage:
-                                token_usage = {
-                                    "prompt_tokens": usage.get("input_tokens", 0),
-                                    "completion_tokens": usage.get("output_tokens", 0),
-                                    "total_tokens": usage.get("total_tokens", 0)
-                                }
-                                points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
-                                logger.info(f"Token usage for RAG: {token_usage}, Cost: ${points:.6f}")
-                        elif event["event"] == "on_chat_model_stream":
-                            # Handle reasoning content at the model stream level
-                            chunk = event["data"]["chunk"]
-                            if hasattr(chunk, "additional_kwargs") and "reasoning_content" in chunk.additional_kwargs:
-                                reasoning = chunk.additional_kwargs["reasoning_content"]
-                                if reasoning:
-                                    if not has_started_reasoning:
-                                        yield "<think>"
-                                        has_started_reasoning = True
-                                        full_response += "<think>"
-                                    yield reasoning
-                                    full_response += reasoning
-                                    continue
-                        elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
-                            try:
-                                chunk = event["data"]["chunk"]
-                                if chunk is None:
-                                    continue
-                                # If we were collecting reasoning and now we're getting actual content, close the think tag
-                                chunk_str = str(chunk) if not isinstance(chunk, str) else chunk
-                                if has_started_reasoning and chunk_str != "":
-                                    yield "</think>\n"
-                                    has_started_reasoning = False
-                                    full_response += "</think>\n"
-
-                                full_response += chunk_str
-                                yield chunk_str
-                            except Exception as e:
-                                logger.error(f"Error processing chunk: {str(e)}")
-                                continue
-                            await asyncio.sleep(0.01)
-                
-                points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
-                yield f"\n\n[POINTS]{points}"
-                
-            else:
-                print(f"Using direct {ai_config.provider} completion")
-                messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
-                messages.append({"role": "user", "content": learningPrompt if chatType == 1 else query})
-                
-                system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}"
-                estimated_tokens = self.estimate_total_tokens(messages, system_template, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model)
-                estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
-                print(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
-                
-                check_user_available_to_chat = await user_point.check_user_available_to_chat(estimated_points, ai_config)
-                if not check_user_available_to_chat:
-                    error_response = {
-                        "error": True,
-                        "status": 429,
-                        "message": "Insufficient points available",
-                        "details": {
-                            "estimated_points": estimated_points,
-                            "available_points": user_point.user_doc.get("availablePoints", 0) if user_point.user_doc else 0,
-                            "points_used": user_point.user_doc.get("pointsUsed", 0) if user_point.user_doc else 0
-                        }
+                # Create and execute chain
+                chain = (
+                    {
+                        "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
                     }
-                    yield f"\n\n[ERROR]{error_response}"
-                    return
+                    | prompt
+                    | llm
+                    | StrOutputParser()
+                )
                 
-                # Handle potential image files even in non-RAG case  
-                image_files, text_files = file_processor.identify_files(files) if files else ([], [])
-                
-                # Check if we have multimodal content that needs special handling
-                has_multimodal_non_rag = ai_config.imageSupport and image_files
-                
-                if has_multimodal_non_rag:
-                    # For multimodal content without RAG, create direct messages
-                    chat_history_str = "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
-                    multimodal_messages = self._create_chat_messages_for_llm(
-                        messages, 
-                        system_prompt, 
-                        learningPrompt if chatType == 1 else query, 
-                        "", 
-                        chat_history_str, 
-                        ai_config.provider
+                # Stream response with proper error handling
+                try:
+                    async for chunk in chain.astream({}):
+                        if chunk:
+                            full_response += chunk
+                            yield chunk
+                except Exception as stream_error:
+                    logger.error(f"Error during response streaming: {str(stream_error)}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Error during response streaming: {str(stream_error)}"
                     )
+                
+                # Calculate and track token usage
+                try:
+                    token_usage = self.track_actual_token_usage(
+                        messages,
+                        full_response,
+                        ai_config.model
+                    )
+                    logger.info(f"Token usage tracked: {token_usage}")
                     
-                    # Use direct LLM invocation for multimodal content
-                    async for event in llm.astream_events(multimodal_messages):
-                        logger.info(f"Non-RAG Multimodal event stream: {event}")
-                        
-                        if event["event"] == "on_chat_model_end":
-                            usage = event["data"]["output"].usage_metadata
-                            if usage:
-                                token_usage = {
-                                    "prompt_tokens": usage.get("input_tokens", 0),
-                                    "completion_tokens": usage.get("output_tokens", 0),
-                                    "total_tokens": usage.get("total_tokens", 0)
-                                }
-                                points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
-                                logger.info(f"Token usage for non-RAG multimodal completion: {token_usage}, Cost: ${points:.6f}")
-                        elif event["event"] == "on_chat_model_stream":
-                            # Handle reasoning content at the model stream level
-                            chunk = event["data"]["chunk"]
-                            if hasattr(chunk, "additional_kwargs") and "reasoning_content" in chunk.additional_kwargs:
-                                reasoning = chunk.additional_kwargs["reasoning_content"]
-                                if reasoning:
-                                    if not has_started_reasoning:
-                                        yield "<think>"
-                                        has_started_reasoning = True
-                                        full_response += "<think>"
-                                    yield reasoning
-                                    full_response += reasoning
-                                    continue
-                                    
-                            if hasattr(chunk, "content") and chunk.content:
-                                if has_started_reasoning:
-                                    yield "</think>\n"
-                                    has_started_reasoning = False
-                                    full_response += "</think>\n"
-                                
-                                content = chunk.content
-                                full_response += content
-                                yield content
-                else:
-                    # For text-only content without RAG, use the traditional template approach
-                    current_question_msg = {"role": "user", "content": learningPrompt if chatType == 1 else query}
+                    points = self.get_points(
+                        token_usage["prompt_tokens"],
+                        token_usage["completion_tokens"],
+                        ai_config
+                    )
+                    yield f"\n\n[POINTS]{points}"
                     
-                    # Create prompt using traditional template approach
-                    prompt = ChatPromptTemplate.from_messages([
-                        SystemMessagePromptTemplate.from_template(system_template),
-                        *[HumanMessagePromptTemplate.from_template(
-                           str(self._extract_text_content(msg.get("content", "")))
-                        ) if msg["role"] == "user" 
-                          else AIMessagePromptTemplate.from_template(
-                           str(msg.get("content", ""))
-                        ) 
-                          for msg in messages[:-1] if self._has_content(msg)],  # Chat history
-                        HumanMessagePromptTemplate.from_template(
-                            str(self._extract_text_content(current_question_msg.get("content", "")))
-                        )  # Current question
+                except Exception as token_error:
+                    logger.error(f"Error calculating token usage: {str(token_error)}")
+                    # Continue without token tracking rather than failing
+                    yield "\n\n[POINTS]0"
+            else:
+                messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
+                logger.info("Setting up regular chat without RAG...")
+                
+                try:
+                    # Create formatted messages with proper structure
+                    formatted_messages = []
+                    
+                    # Add system message if not Anthropic
+                    if ai_config.provider.lower() != "anthropic":
+                        formatted_messages.append({
+                            "role": "system",
+                            "content": system_prompt
+                        })
+                    
+                    # Add chat history efficiently
+                    formatted_messages.extend([
+                        {
+                            "role": msg["role"],
+                            "content": msg["content"]
+                        }
+                        for msg in messages[:-1]  # Exclude last message
+                        if self._has_content(msg)
                     ])
                     
+                    # Add current question
+                    formatted_messages.append({
+                        "role": "user",
+                        "content": query
+                    })
+                    
+                    logger.info(f"Formatted messages count: {len(formatted_messages)}")
+                    
+                    # Create prompt template for the chain
+                    prompt = ChatPromptTemplate.from_messages([
+                        *[SystemMessagePromptTemplate.from_template(msg["content"]) if msg["role"] == "system"
+                          else HumanMessagePromptTemplate.from_template(msg["content"]) if msg["role"] == "user"
+                          else AIMessagePromptTemplate.from_template(msg["content"])
+                          for msg in formatted_messages]
+                    ])
+                    
+                    # Create and execute chain with proper message formatting
                     chain = (
-                        {
-                            "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
-                        }
-                        | prompt
+                        prompt
                         | llm
                         | StrOutputParser()
                     )
-                
-                    async for event in chain.astream_events({}):
-                            logger.info(f"Event stream: {event}")
-                            
-                            if event["event"] == "on_chat_model_end":
-                                usage = event["data"]["output"].usage_metadata
-                                if usage:
-                                    token_usage = {
-                                        "prompt_tokens": usage.get("input_tokens", 0),
-                                        "completion_tokens": usage.get("output_tokens", 0),
-                                        "total_tokens": usage.get("total_tokens", 0)
-                                    }
-                                    points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
-                                    logger.info(f"Token usage for completion: {token_usage}, Cost: ${points:.6f}")
-                            elif event["event"] == "on_chat_model_stream":
-                                # Handle reasoning content at the model stream level
-                                chunk = event["data"]["chunk"]
-                                if hasattr(chunk, "additional_kwargs") and "reasoning_content" in chunk.additional_kwargs:
-                                    reasoning = chunk.additional_kwargs["reasoning_content"]
-                                    if reasoning:
-                                        if not has_started_reasoning:
-                                            yield "<think>"
-                                            full_response += "<think>"
-                                            has_started_reasoning = True
-                                        yield reasoning
-                                        full_response += reasoning
-                                        continue
-                            elif event["event"] == "on_chain_stream" and event["name"] == "RunnableSequence":
-                                try:
-                                    chunk = event["data"]["chunk"]
-                                    if chunk is None:
-                                        continue
-                                    chunk_str = str(chunk) if not isinstance(chunk, str) else chunk
-                                    if has_started_reasoning and chunk_str != "":
-                                        yield "</think>\n"
-                                        full_response += "</think>\n"
-                                        has_started_reasoning = False
-                                    full_response += chunk_str
-                                    yield chunk_str
-                                except Exception as e:
-                                    logger.error(f"Error processing chunk: {str(e)}")
-                                    continue
-                                await asyncio.sleep(0.01)
-                
-                points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
-                yield f"\n\n[POINTS]{points}"
+                    
+                    # Stream response with proper error handling
+                    try:
+                        async for chunk in chain.astream({}):
+                            if chunk:
+                                full_response += chunk
+                                yield chunk
+                    except Exception as stream_error:
+                        logger.error(f"Error during response streaming: {str(stream_error)}")
+                        raise HTTPException(
+                            status_code=500,
+                            detail=f"Error during response streaming: {str(stream_error)}"
+                        )
+                    
+                    # Calculate and track token usage
+                    try:
+                        token_usage = self.track_actual_token_usage(
+                            formatted_messages,
+                            full_response,
+                            ai_config.model
+                        )
+                        logger.info(f"Token usage tracked: {token_usage}")
+                        
+                        points = self.get_points(
+                            token_usage["prompt_tokens"],
+                            token_usage["completion_tokens"],
+                            ai_config
+                        )
+                        yield f"\n\n[POINTS]{points}"
+                        
+                    except Exception as token_error:
+                        logger.error(f"Error calculating token usage: {str(token_error)}")
+                        # Continue without token tracking rather than failing
+                        yield "\n\n[POINTS]0"
+                    
+                except Exception as e:
+                    logger.error(f"Error in regular chat setup: {str(e)}")
+                    error_response = {
+                        "error": True,
+                        "status": 500,
+                        "message": "An error occurred while processing your request",
+                        "details": str(e)
+                    }
+                    yield f"\n\n[ERROR]{error_response}"
+                    raise
             
             outputTime = (datetime.now() - outputTime).total_seconds()
             yield f"\n\n[OUTPUT_TIME]{outputTime}"
@@ -704,15 +640,45 @@ class ChatService:
                     messages.append({"role": "user", "content": query})
                 
                 if vector_store:
-                    system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}\n\nContext:\n{context}"
+                    logger.info("Setting up RAG with vector store...")
+                    # Get relevant context from files
+                    retriever = vector_store.as_retriever(
+                        search_type="similarity",
+                        search_kwargs={"k": 4}
+                    )
+                    logger.info("Retrieving documents from vector store...")
+                    docs = await retriever.ainvoke(query)
+                    logger.info(f"Retrieved {len(docs)} documents")
+                    
+                    # Format context with source information
+                    context_parts = []
+                    for doc in docs:
+                        if hasattr(doc, 'metadata') and 'source' in doc.metadata:
+                            context_parts.append(f"[Source: {doc.metadata['source']}]\n{doc.page_content}")
+                        else:
+                            context_parts.append(doc.page_content)
+                    
+                    context = "\n\n".join(context_parts)
+                    logger.info(f"Context length: {len(context)}")
+                    
+                    # Create system template with context
+                    system_template = f"""You are a helpful AI assistant. Use the following context from the provided documents to answer the user's question. If the answer cannot be found in the context, say so.
 
-                    # Get relevant context from files for token estimation
-                    retriever = vector_store.as_retriever()
-                    docs = retriever.get_relevant_documents(query)
-                    context = "\n".join([doc.page_content for doc in docs])
+Context from documents:
+{context}
+
+Previous conversation:
+{{chat_history}}
+
+Now, please answer the user's question based on the above context."""
                 else:
                     system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}"
                     context = ""
+                
+                # Create current question message that preserves content
+                current_question_msg = {"role": "user", "content": query}
+                if ai_config.imageSupport and image_files:
+                    current_question_msg = self.create_multimodal_message(query, image_files, ai_config.provider)
                 
                 # Estimate tokens before making the API call
                 estimated_tokens = self.estimate_total_tokens(messages, system_template, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model, context)
@@ -733,40 +699,92 @@ class ChatService:
                     }
                     return f"\n\n[ERROR]{error_response}"
                 
-                # Create current question message that preserves multimodal content
-                current_question_msg = None
-                if ai_config.imageSupport and image_files:
-                    current_question_msg = self.create_multimodal_message(query, image_files, ai_config.provider)
-                else:
-                    current_question_msg = {"role": "user", "content": query}
+                # Check if we have multimodal content that needs special handling
+                has_multimodal = ai_config.imageSupport and image_files
                 
-                # Create prompt using traditional template approach
-                prompt = ChatPromptTemplate.from_messages([
-                    SystemMessagePromptTemplate.from_template(system_template),
-                    *[HumanMessagePromptTemplate.from_template(
-                        str(self._extract_text_content(msg.get("content", "")))
-                    ) if msg["role"] == "user" 
-                      else AIMessagePromptTemplate.from_template(
-                        str(msg.get("content", ""))
-                    ) 
-                      for msg in messages[:-1] if self._has_content(msg)],  # Chat history
-                    HumanMessagePromptTemplate.from_template(
-                        str(self._extract_text_content(current_question_msg.get("content", "")))
-                    )  # Current question
-                ])
-                
-                if vector_store:
-                    rag_chain = (
-                        {
-                            "context": vector_store.as_retriever(),
-                            "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
-                        }
-                        | prompt
-                        | llm
-                        | StrOutputParser()
+                if has_multimodal:
+                    # For multimodal content, use direct LLM invocation to preserve image data
+                    logger.info("Processing multimodal content with images...")
+                    
+                    # Create direct messages that preserve multimodal content
+                    chat_history_str = "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
+                    
+                    # Create system content with context if available
+                    system_content = system_prompt
+                    if vector_store:
+                        system_content = f"""You are a helpful AI assistant. Use the following context from the provided documents to answer the user's question. If the answer cannot be found in the context, say so.
+
+Context from documents:
+{context}
+
+Previous conversation:
+{chat_history_str}
+
+Now, please answer the user's question based on the above context and the images provided."""
+                    else:
+                        system_content = f"{system_prompt}\n\nPrevious conversation:\n{chat_history_str}"
+                    
+                    # Create messages for direct LLM invocation
+                    direct_messages = []
+                    
+                    # Add system message (except for Anthropic)
+                    if ai_config.provider.lower() != "anthropic":
+                        direct_messages.append({"role": "system", "content": system_content})
+                    
+                    # Add chat history
+                    for msg in messages[:-1]:  # Exclude current question
+                        if self._has_content(msg):
+                            direct_messages.append({
+                                "role": msg["role"],
+                                "content": msg["content"]
+                            })
+                    
+                    # Add current multimodal question
+                    direct_messages.append(current_question_msg)
+                    
+                    # For Anthropic, add system content to the first user message
+                    if ai_config.provider.lower() == "anthropic" and direct_messages:
+                        # Find first user message and prepend system content
+                        for i, msg in enumerate(direct_messages):
+                            if msg["role"] == "user":
+                                if isinstance(msg["content"], str):
+                                    direct_messages[i]["content"] = f"{system_content}\n\n{msg['content']}"
+                                elif isinstance(msg["content"], list):
+                                    # For multimodal content, add system content as first text item
+                                    direct_messages[i]["content"].insert(0, {"type": "text", "text": system_content})
+                                break
+                    
+                    # Get response using direct LLM invocation
+                    ai_response = await llm.ainvoke(direct_messages)
+                    full_response = ai_response.content if hasattr(ai_response, 'content') else str(ai_response)
+                    
+                    # Calculate token usage for multimodal content
+                    token_usage = self.track_actual_token_usage(
+                        direct_messages,
+                        full_response,
+                        ai_config.model
                     )
                 else:
-                    rag_chain = (
+                    # Regular RAG or text-only processing
+                    logger.info("Processing text-only content...")
+                    
+                    # Create prompt template for the chain
+                    prompt = ChatPromptTemplate.from_messages([
+                        SystemMessagePromptTemplate.from_template(system_template),
+                        *[HumanMessagePromptTemplate.from_template(
+                            str(self._extract_text_content(msg.get("content", "")))
+                        ) if msg["role"] == "user" 
+                          else AIMessagePromptTemplate.from_template(
+                            str(msg.get("content", ""))
+                        ) 
+                          for msg in messages[:-1] if self._has_content(msg)],  # Chat history
+                        HumanMessagePromptTemplate.from_template(
+                            str(self._extract_text_content(current_question_msg.get("content", "")))
+                        )  # Current question
+                    ])
+                    
+                    # Create and execute chain
+                    chain = (
                         {
                             "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
                         }
@@ -775,11 +793,11 @@ class ChatService:
                         | StrOutputParser()
                     )
 
-                ai_response = rag_chain.invoke({})
-                full_response = ai_response
-                
-                # Track actual token usage
-                token_usage = self.track_actual_token_usage(messages, full_response, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model)
+                    ai_response = await chain.ainvoke({})
+                    full_response = ai_response
+                    
+                    # Track actual token usage
+                    token_usage = self.track_actual_token_usage(messages, full_response, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model)
                 
                 outputTime = (datetime.now() - outputTime).total_seconds()
                 points = self.get_points(token_usage["prompt_tokens"], token_usage["completion_tokens"], ai_config)
@@ -789,19 +807,13 @@ class ChatService:
                 print(f"Using direct {ai_config.provider} completion")
                 messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
                 
-                # Handle potential image files even in non-RAG case
-                image_files, text_files = file_processor.identify_files(files) if files else ([], [])
+                # Add current question to messages
+                messages.append({"role": "user", "content": query})
                 
-                # Create multimodal message if needed
-                if ai_config.imageSupport and image_files:
-                    multimodal_message = self.create_multimodal_message(query, image_files, ai_config.provider)
-                    messages.append(multimodal_message)
-                    current_question_msg = multimodal_message
-                else:
-                    messages.append({"role": "user", "content": query})
-                    current_question_msg = {"role": "user", "content": query}
-                
+                # Create system template
                 system_template = system_prompt + "\n\nPrevious conversation:\n{chat_history}"
+                
+                # Estimate tokens before making the API call
                 estimated_tokens = self.estimate_total_tokens(messages, system_template, "llama3.1-8b" if ai_config.provider.lower() == "edith" else ai_config.model)
                 estimated_points = self.get_points(estimated_tokens["prompt_tokens"], estimated_tokens["completion_tokens"], ai_config)
                 print(f"Estimated token usage: {estimated_tokens}, Estimated points: {estimated_points}")
@@ -820,15 +832,18 @@ class ChatService:
                     }
                     return f"\n\n[ERROR]{error_response}"
                 
-                # Create prompt using traditional template approach
+                logger.info("Processing regular text conversation...")
+                
+                # Create prompt template for the chain
                 prompt = ChatPromptTemplate.from_messages([
                     SystemMessagePromptTemplate.from_template(system_template),
-                    *[HumanMessagePromptTemplate.from_template(str(self._extract_text_content(msg.get("content", "")))) if msg["role"] == "user" 
+                    *[HumanMessagePromptTemplate.from_template(str(msg.get("content", ""))) if msg["role"] == "user" 
                       else AIMessagePromptTemplate.from_template(str(msg.get("content", ""))) 
                       for msg in messages[:-1] if self._has_content(msg)],  # Chat history
-                    HumanMessagePromptTemplate.from_template(str(self._extract_text_content(current_question_msg.get("content", ""))))  # Current question
+                    HumanMessagePromptTemplate.from_template(query)  # Current question
                 ])
                 
+                # Create and execute chain
                 chain = (
                     {
                         "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
@@ -838,7 +853,7 @@ class ChatService:
                     | StrOutputParser()
                 )
 
-                ai_response = chain.invoke({})
+                ai_response = await chain.ainvoke({})
                 full_response = ai_response
                 
                 # Track actual token usage
@@ -961,7 +976,7 @@ class ChatService:
                 if vector_store:
                     # Get relevant context from files
                     retriever = vector_store.as_retriever()
-                    docs = retriever.get_relevant_documents(query)
+                    docs = await retriever.ainvoke(query)  # Updated to use invoke instead of get_relevant_documents
                     context = "\n".join([doc.page_content for doc in docs])
                     # Enhance the prompt with context
                     enhanced_query = f"Context from files:\n{context}\n\nGenerate image based on this context and the following description: {query}"
@@ -1180,7 +1195,7 @@ class ChatService:
                 if vector_store:
                     # Get relevant context from files
                     retriever = vector_store.as_retriever()
-                    docs = retriever.get_relevant_documents(query)
+                    docs = await retriever.ainvoke(query)  # Updated to use invoke instead of get_relevant_documents
                     context = "\n".join([doc.page_content for doc in docs])
                     # Enhance the prompt with context
                     enhanced_query = f"Context from files:\n{context}\n\nGenerate audio based on this context and the following text: {query}"
@@ -1371,10 +1386,12 @@ class ChatService:
                 return None
             
             logger.info("Creating text splitter")
+            # Use smaller chunks for better context preservation
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1000,
-                chunk_overlap=200,
+                chunk_size=500,  # Reduced from 1000
+                chunk_overlap=100,  # Reduced from 200
                 length_function=len,
+                separators=["\n=== File:", "\n--- Page", "\n\n", "\n", ".", "!", "?", ",", " ", ""]
             )
             
             # Ensure text is properly formatted for text splitter
@@ -1396,14 +1413,23 @@ class ChatService:
             persist_directory = "chroma_db"
             
             try:
-                # Try to create new vector store
+                # Try to create new vector store with metadata
                 vector_store = Chroma.from_texts(
                     texts=texts,
                     embedding=self.embeddings,
                     persist_directory=persist_directory,
-                    collection_name=collection_name
+                    collection_name=collection_name,
+                    metadatas=[{"source": f"chunk_{i}"} for i in range(len(texts))]
                 )
                 logger.info(f"Created new vector store with collection: {collection_name}")
+                
+                # Configure retriever for better results
+                retriever = vector_store.as_retriever(
+                    search_type="similarity",
+                    search_kwargs={"k": 4}  # Retrieve top 4 most relevant chunks
+                )
+                vector_store.retriever = retriever
+                
             except Exception as e:
                 logger.error(f"Error creating new vector store: {str(e)}")
                 # If creation fails, try to use existing collection
@@ -1660,8 +1686,7 @@ class ChatService:
                 formatted_content.append({
                     "type": "image_url",
                     "image_url": {
-                        "url": image_url if image_url.startswith('http') else f"{settings.AWS_CDN_URL}/{image_url}",
-                        "detail": "high"
+                        "url": image_url if image_url.startswith('http') else f"{settings.AWS_CDN_URL}/{image_url}"
                     }
                 })
         

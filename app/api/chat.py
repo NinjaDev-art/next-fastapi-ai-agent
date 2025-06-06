@@ -38,8 +38,7 @@ async def chat_generate_text(request: ChatRequest):
             request.email,
             request.sessionId,
             request.reGenerate,
-            request.chatType,
-            request.learningPrompt,
+            request.chatType
         )
         return JSONResponse(
             content={
