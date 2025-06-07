@@ -399,64 +399,64 @@ Now, please answer the user's question based on the above context and the images
                     # Regular RAG or text-only processing
                     logger.info("Processing text-only content...")
                 
-                # Create prompt template for the chain
-                prompt = ChatPromptTemplate.from_messages([
-                    SystemMessagePromptTemplate.from_template(system_template),
-                    *[HumanMessagePromptTemplate.from_template(
-                        str(self._extract_text_content(msg.get("content", "")))
-                    ) if msg["role"] == "user" 
-                      else AIMessagePromptTemplate.from_template(
-                        str(msg.get("content", ""))
-                    ) 
-                      for msg in messages[:-1] if self._has_content(msg)],  # Chat history
-                    HumanMessagePromptTemplate.from_template(
-                        str(self._extract_text_content(current_question_msg.get("content", "")))
-                    )  # Current question
-                ])
-                
-                # Create and execute chain
-                chain = (
-                    {
-                        "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
-                    }
-                    | prompt
-                    | llm
-                    | StrOutputParser()
-                )
-                
-                # Stream response with proper error handling
-                try:
-                    async for chunk in chain.astream({}):
-                        if chunk:
-                            full_response += chunk
-                            yield chunk
-                except Exception as stream_error:
-                    logger.error(f"Error during response streaming: {str(stream_error)}")
-                    raise HTTPException(
-                        status_code=500,
-                        detail=f"Error during response streaming: {str(stream_error)}"
-                    )
-                
-                # Calculate and track token usage
-                try:
-                    token_usage = self.track_actual_token_usage(
-                        messages,
-                        full_response,
-                        ai_config.model
-                    )
-                    logger.info(f"Token usage tracked: {token_usage}")
+                    # Create prompt template for the chain
+                    prompt = ChatPromptTemplate.from_messages([
+                        SystemMessagePromptTemplate.from_template(system_template),
+                        *[HumanMessagePromptTemplate.from_template(
+                            str(self._extract_text_content(msg.get("content", "")))
+                        ) if msg["role"] == "user" 
+                        else AIMessagePromptTemplate.from_template(
+                            str(msg.get("content", ""))
+                        ) 
+                        for msg in messages[:-1] if self._has_content(msg)],  # Chat history
+                        HumanMessagePromptTemplate.from_template(
+                            str(self._extract_text_content(current_question_msg.get("content", "")))
+                        )  # Current question
+                    ])
                     
-                    points = self.get_points(
-                        token_usage["prompt_tokens"],
-                        token_usage["completion_tokens"],
-                        ai_config
+                    # Create and execute chain
+                    chain = (
+                        {
+                            "chat_history": lambda x: "\n".join([f"User: {h.prompt}\nAssistant: {h.response}" for h in chat_history if h.response])
+                        }
+                        | prompt
+                        | llm
+                        | StrOutputParser()
                     )
-                    yield f"\n\n[POINTS]{points}"
                     
-                except Exception as token_error:
-                    logger.error(f"Error calculating token usage: {str(token_error)}")
-                    # Continue without token tracking rather than failing
-                    yield "\n\n[POINTS]0"
+                    # Stream response with proper error handling
+                    try:
+                        async for chunk in chain.astream({}):
+                            if chunk:
+                                full_response += chunk
+                                yield chunk
+                    except Exception as stream_error:
+                        logger.error(f"Error during response streaming: {str(stream_error)}")
+                        raise HTTPException(
+                            status_code=500,
+                            detail=f"Error during response streaming: {str(stream_error)}"
+                        )
+                    
+                    # Calculate and track token usage
+                    try:
+                        token_usage = self.track_actual_token_usage(
+                            messages,
+                            full_response,
+                            ai_config.model
+                        )
+                        logger.info(f"Token usage tracked: {token_usage}")
+                        
+                        points = self.get_points(
+                            token_usage["prompt_tokens"],
+                            token_usage["completion_tokens"],
+                            ai_config
+                        )
+                        yield f"\n\n[POINTS]{points}"
+                        
+                    except Exception as token_error:
+                        logger.error(f"Error calculating token usage: {str(token_error)}")
+                        # Continue without token tracking rather than failing
+                        yield "\n\n[POINTS]0"
             else:
                 messages, system_prompt = self.get_chat_messages(chat_history, ai_config.provider)
                 logger.info("Setting up regular chat without RAG...")
