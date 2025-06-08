@@ -1699,6 +1699,10 @@ Now, please answer the user's question based on the above context and the images
         if not image_files:
             return {"role": "user", "content": text_content}
         
+        # If text_content is empty or generic, provide a default prompt for image analysis
+        if not text_content or text_content.strip() == "" or len(text_content.strip()) < 5:
+            text_content = "Please analyze and describe what you see in this image. Provide detailed information about the content, objects, text, symbols, or any other relevant details you can observe."
+        
         if provider.lower() == "openai":
             # OpenAI multimodal format
             content = [
