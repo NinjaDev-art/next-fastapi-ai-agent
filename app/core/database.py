@@ -84,7 +84,7 @@ class Database:
                     multiplier=ai_doc["multiplier"],
                     model=ai_doc["model"],
                     provider=ai_doc["provider"],
-                    imageSupport=ai_doc["imageSupport"]
+                    imageSupport=ai_doc.get("imageSupport", False)
                 )
             else:
                 logger.warning(f"No AI config found for ID: {ai_id}")
